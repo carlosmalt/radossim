@@ -28,7 +28,7 @@ def osdClient(env, priority, meanInterArrivalTime, meanReqSize, dstQ):
                         yield put
                 
 # Move requests to BlueStore
-def osdThread(env, srcQ, dstQ, batchSizeCap=None):
+def osdThread(env, srcQ, dstQ):
         while True:
                 # Wait until there is something in the srcQ
                 with srcQ.get() as get:
@@ -40,7 +40,7 @@ def osdThread(env, srcQ, dstQ, batchSizeCap=None):
                         yield put
                 
 # Batch incoming requests and process
-def kvThread(env, srcQ, batchSizeCap=None):
+def kvThread(env, srcQ):
         latMap = {}; cntMap = {}; count = 0; lat = 0
         while True:
                 # Create batch
@@ -49,17 +49,19 @@ def kvThread(env, srcQ, batchSizeCap=None):
                 with srcQ.get() as get:
                         bsTxn = yield get
                         batch.append(bsTxn)
-                # Determine how much to batch in addition to the req above                
-                if not batchSizeCap:
+                # Batch everything that is now in srcQ
+                # batch size is governed by srcQ.capacity
+                if srcQ.capacity == float('inf'):
                         batchSize = len(srcQ.items)
                 else:
-                        batchSize = min(batchSizeCap-1, len(srcQ.items))
+                        batchSize = min(srcQ.capacity-1, len(srcQ.items))
                 # Do batch
                 for i in range(batchSize):
                         with srcQ.get() as get:
                                 bsTxn = yield get
                                 batch.append(bsTxn)
                 # Process batch
+                #print("batch size =", len(batch))
                 for bsTxn in batch:
                         # Unpack transaction
                         ((priority, reqSize, arrivalOSD), arrivalKV) = bsTxn
@@ -97,23 +99,24 @@ if __name__ == '__main__':
         #meanReqSize = 16 * 4096 # bytes
         
         # OSD queue(s)
-        osdQ1 = simpy.PriorityStore(env) # infinite capacity
-        osdQ2 = simpy.PriorityStore(env) # infinite capacity
+        # Add capacity parameter for max queue lengths
+        osdQ1 = simpy.PriorityStore(env)
+        osdQ2 = simpy.PriorityStore(env)
         #osdQ = simpy.Store(env) # infinite capacity
         
-        # KV queue
-        kvQ = simpy.Store(env, 2) # an open batch and a committing batch
+        # KV queue (capacity translates into batch size)
+        kvQ = simpy.Store(env, 1) 
         
-        # OSD client(s), each with a particular priority
+        # OSD client(s), each with a particular priority pushing request into a particular queue
         env.process(osdClient(env, 1, meanInterArrivalTime*2, meanReqSize, osdQ1))
         env.process(osdClient(env, 2, meanInterArrivalTime*2, meanReqSize, osdQ1))        
         
         # OSD thread(s) (one per OSD queue)
         # env.process(osdThread(env, osdQ, kvQ))
-        env.process(osdThread(env, osdQ1, kvQ, 1))
-        env.process(osdThread(env, osdQ2, kvQ, 1))
+        env.process(osdThread(env, osdQ1, kvQ))
+        env.process(osdThread(env, osdQ2, kvQ))
         
-        # KV queue in BlueStore
+        # KV thread in BlueStore
         env.process(kvThread(env, kvQ))
         
         # Run simulation
