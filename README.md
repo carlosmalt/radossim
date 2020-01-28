@@ -1,2 +1,4 @@
-# Bufferbloat.py - Simulate RADOS OSD/BlueStore request streaming
+# Simulate RADOS OSD/BlueStore request streaming
+
+With the focus on understanding parallels to bufferbloat.
 
