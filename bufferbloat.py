@@ -62,16 +62,17 @@ def kvThread(env, srcQ):
                                 batch.append(bsTxn)
                 # Process batch
                 #print("batch size =", len(batch))
+                batchReqSize = 0
                 for bsTxn in batch:
                         # Unpack transaction
                         ((priority, reqSize, arrivalOSD), arrivalKV) = bsTxn
+                        # Build request of entire batch (see Issue #6)
+                        batchReqSize += reqSize
                         # Measure latencies
                         osdQLat = arrivalKV - arrivalOSD
                         kvQLat = env.now - arrivalKV
                         count += 1
                         lat += osdQLat + kvQLat
-                        # Process transaction
-                        yield env.timeout(latModel(reqSize))
                         # Account latencies
                         if priority in latMap:
                                 latMap[priority] += osdQLat + kvQLat
@@ -85,6 +86,8 @@ def kvThread(env, srcQ):
                                         print(priority, latMap[priority] / cntMap[priority] / 1000000)
                                 print('total', lat / count / 1000000)
                         #print(priority, (arrivalKV - arrivalOSD) / (env.now - arrivalKV))
+                # Process batch
+                yield env.timeout(latModel(batchReqSize))
                         
                         
                         
