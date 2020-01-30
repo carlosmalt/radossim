@@ -86,8 +86,8 @@ def kvThread(env, srcQ):
                                         print(priority, latMap[priority] / cntMap[priority] / 1000000)
                                 print('total', lat / count / 1000000)
                         #print(priority, (arrivalKV - arrivalOSD) / (env.now - arrivalKV))
-                # Process transaction
-                yield env.timeout(latModel(reqSize))
+                # Process batch
+                yield env.timeout(latModel(batchReqSize))
                         
                         
                         
