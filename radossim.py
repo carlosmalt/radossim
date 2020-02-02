@@ -40,8 +40,8 @@ def osdThread(env, srcQ, dstQ):
             yield put
 
 # Batch incoming requests and process
-def kvThread(env, srcQ):
-    bm = BatchManagement()
+def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
+    bm = BatchManagement(srcQ, targetLat, measInterval)
     while True:
         # Create batch
         batch = []
@@ -54,12 +54,13 @@ def kvThread(env, srcQ):
             # Unpack transaction
             ((priority, reqSize, arrivalOSD), arrivalKV) = bsTxn
             batchReqSize += reqSize
-        # Batch everything that is now in srcQ
-        # batch size is governed by srcQ.capacity
-        if srcQ.capacity == float('inf'):
+        # Batch everything that is now in srcQ or up to bm.batchSize
+        # initial batch size is governed by srcQ.capacity
+        # but then updated by BatchManagement
+        if bm.batchSize == float('inf'):
             batchSize = len(srcQ.items)
         else:
-            batchSize = min(srcQ.capacity-1, len(srcQ.items))
+            batchSize = int(min(bm.batchSize-1, len(srcQ.items)))
         # Do batch
         for i in range(batchSize):
             with srcQ.get() as get:
@@ -73,32 +74,82 @@ def kvThread(env, srcQ):
         yield env.timeout(latModel(batchReqSize))
         kvCommit = env.now
         # Diagnose and manage batching
-        bm.processBatch(batch, batchReqSize, kvQDispatch, kvCommit)
+        bm.manageBatch(batch, batchReqSize, kvQDispatch, kvCommit)
 
 # Manage batch sizing
 class BatchManagement:
-    def __init__(self):
+    def __init__(self, queue, minLatTarget=5000, initInterval=100000):
+        self.queue = queue
+        # Latency state
         self.latMap = {}; self.cntMap = {}; self.count = 0; self.lat = 0
+        # Controlled Delay (CoDel) state
+        self.minLatTarget = minLatTarget
+        self.initInterval = self.interval = initInterval
+        self.intervalStart = None
+        self.minLatViolationCnt = 0
+        self.intervalAdj = lambda x : math.sqrt(x)
+        self.minLat = None
+        # Batch sizing state
+        self.batchSize = self.queue.capacity
+        self.batchSizeInit = 100
+        self.batchDownSize = lambda x : x / 2
+        self.batchUpSize = lambda x : x + 10
 
-    def processBatch(self, batch, batchSize, dispatchTime, commitTime):
+    def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
-            self.printLats(txn, dispatchTime)
+            ((priority, reqSize, arrivalOSD), arrivalKV) = txn
+            # Account latencies
+            osdQLat = arrivalKV - arrivalOSD
+            kvQLat = dispatchTime - arrivalKV
+            self.count += 1
+            self.lat += osdQLat + kvQLat
+            if priority in self.latMap:
+                self.latMap[priority] += osdQLat + kvQLat
+                self.cntMap[priority] += 1
+            else:
+                self.latMap[priority] = osdQLat + kvQLat
+                self.cntMap[priority] = 1
+            self.fightBufferbloat(kvQLat, dispatchTime)
+            self.printLats()
 
-    def printLats(self, txn, dispatchTime):
-        ((priority, reqSize, arrivalOSD), arrivalKV) = txn
-        # Account latencies
-        osdQLat = arrivalKV - arrivalOSD
-        kvQLat = dispatchTime - arrivalKV
-        self.count += 1
-        self.lat += osdQLat + kvQLat
-        if priority in self.latMap:
-            self.latMap[priority] += osdQLat + kvQLat
-            self.cntMap[priority] += 1
-        else:
-            self.latMap[priority] = osdQLat + kvQLat
-            self.cntMap[priority] = 1
-        # Periodically print latencies (averages so far)
-        if self.count % 10000 == 0:
+    # Implement CoDel algorithm and call batchSizing
+    def fightBufferbloat(self, currQLat, currentTime):
+        if not self.minLat or currQLat < self.minLat:
+            self.minLat = currQLat
+        if not self.intervalStart:
+            self.intervalStart = currentTime
+        elif currentTime - self.intervalStart >= self.interval:
+            # Time to check on minimum latency
+            if self.minLat > self.minLatTarget:
+                # Minimum latency violation
+                self.minLatViolationCnt += 1
+                self.interval = self.initInterval / self.intervalAdj(self.minLatViolationCnt)
+                # Call batchSizing to downsize batch
+                self.batchSizing(True)
+            else:
+                # No violation: reset count and interval length
+                self.minLatViolationCnt = 0
+                self.interval = self.initInterval
+                # Call batchSizing to upsize batch
+                self.batchSizing(False)
+            self.minLat = None
+            self.intervalStart = currentTime
+
+    def batchSizing(self, isTooLarge):
+        if isTooLarge:
+            print('batch size', self.batchSize, 'is too large')
+            if self.batchSize == float('inf'):
+                self.batchSize = self.batchSizeInit
+            else:
+                self.batchSize = self.batchDownSize(self.batchSize)
+            print('new batch size is', self.batchSize)
+        elif self.batchSize != float('inf'):
+                #print('batch size', self.batchSize, 'gets larger')
+                self.batchSize = self.batchUpSize(self.batchSize)
+                #print('new batch size is', self.batchSize)
+
+    def printLats(self, freq=1000):
+        if self.count % freq == 0:
             for priority in self.latMap.keys():
                 print(priority, self.latMap[priority] / self.cntMap[priority] / 1000000)
             print('total', self.lat / self.count / 1000000)
@@ -119,7 +170,7 @@ if __name__ == '__main__':
         osdQ2 = simpy.PriorityStore(env)
         #osdQ = simpy.Store(env) # infinite capacity
 
-        # KV queue (capacity translates into batch size)
+        # KV queue (capacity translates into initial batch size)
         kvQ = simpy.Store(env, 1)
 
         # OSD client(s), each with a particular priority pushing request into a particular queue
@@ -131,8 +182,8 @@ if __name__ == '__main__':
         env.process(osdThread(env, osdQ1, kvQ))
         env.process(osdThread(env, osdQ2, kvQ))
 
-        # KV thread in BlueStore
-        env.process(kvThread(env, kvQ))
+        # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
+        env.process(kvThread(env, kvQ, 80000, 1600000))
 
         # Run simulation
         env.run(60 * 60 * 1000000)
