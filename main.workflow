@@ -1,22 +1,18 @@
 
-workflow "example" {
-  on = "push"
-  resolves = "example action"
+workflow "rados simulation" {
+  #on = "push"
+  resolves = "run simulation"
 }
 
-action "github official action" {
-  uses = "popperized/bin/sh@master"
-  args = ["ls"]
+action "install python modules" {
+  uses = "jefftriplett/python-actions@master"
+  args = "pip install -r requirements.txt"
 }
 
-action "docker action" {
-  needs = "github official action"
-  uses = "docker://node:6"
-  args = ["node", "--version"]
-}
-
-action "example action" {
-  needs = "docker action"
-  uses = "./actions/example"
-  args = ["github.com"]
+action "run simulation" {
+  needs = ["install python modules"]
+  uses = "jefftriplett/python-actions@master"
+  args = [
+    "workflows/minimal-python/scripts/radossim.py"
+  ]
 }
