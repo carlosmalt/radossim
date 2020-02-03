@@ -7,14 +7,18 @@ import math
 
 # Predict request process time in micro seconds (roughly based on spinning media model
 # kaldewey:rtas08, Fig 2)
-def latModel(reqSize):
-    reqSize /= 4096.0
-    if reqSize > 16:
-            iops = 820.28 * math.log(reqSize) - 1114.3
+def latModel(reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=5, sigma=5):
+    # Request size-dependent component
+    runLen = reqSize / 4096.0
+    if runLen > 16:
+            iops = lgMult * math.log(runLen) + lgAdd
     else:
-            iops = 62.36 * reqSize + 8.33
-    #print(int(1000000 / iops))
-    return int(1000000 / iops)
+            iops = smMult * runLen + smAdd
+    sizeLat = int((1000000 / iops) * runLen)
+    # Latency component due to compaction (see skourtis:inflow13, Fig 4)
+    compactLat = random.lognormvariate(mu, sigma)
+    #print(sizeLat, compactLat)
+    return sizeLat + compactLat
 
 # Create requests with a fixed priority and certain inter-arrival and size distributions
 def osdClient(env, priority, meanInterArrivalTime, meanReqSize, dstQ):
