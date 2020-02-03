@@ -96,8 +96,8 @@ class BatchManagement:
         # Batch sizing state
         self.batchSize = self.queue.capacity
         self.batchSizeInit = 100
-        self.batchDownSize = lambda x : x / 2
-        self.batchUpSize = lambda x : x + 10
+        self.batchDownSize = lambda x : int(x / 2)
+        self.batchUpSize = lambda x : int(x + 10)
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
@@ -190,4 +190,4 @@ if __name__ == '__main__':
         env.process(kvThread(env, kvQ, 80000, 1600000))
 
         # Run simulation
-        env.run(60 * 60 * 1000000)
+        env.run(120 * 60 * 1000000)
