@@ -7,29 +7,33 @@ import math
 
 # Predict request process time in micro seconds (roughly based on spinning media model
 # kaldewey:rtas08, Fig 2)
-def latModel(reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=5, sigma=5):
+def latModel(
+    reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=5, sigma=5
+):
     # Request size-dependent component
     runLen = reqSize / 4096.0
     if runLen > 16:
-            iops = lgMult * math.log(runLen) + lgAdd
+        iops = lgMult * math.log(runLen) + lgAdd
     else:
-            iops = smMult * runLen + smAdd
+        iops = smMult * runLen + smAdd
     sizeLat = int((1000000 / iops) * runLen)
     # Latency component due to compaction (see skourtis:inflow13, Fig 4)
     compactLat = random.lognormvariate(mu, sigma)
-    #print(sizeLat, compactLat)
+    # print(sizeLat, compactLat)
     return sizeLat + compactLat
+
 
 # Create requests with a fixed priority and certain inter-arrival and size distributions
 def osdClient(env, priority, meanInterArrivalTime, meanReqSize, dstQ):
     while True:
         # Wait until arrival time
-        yield env.timeout(random.expovariate(1.0/meanInterArrivalTime))
+        yield env.timeout(random.expovariate(1.0 / meanInterArrivalTime))
         # Assemble request and timestamp
-        request = (priority, random.expovariate(1.0/meanReqSize), env.now)
+        request = (priority, random.expovariate(1.0 / meanReqSize), env.now)
         # Submit request
         with dstQ.put(request) as put:
             yield put
+
 
 # Move requests to BlueStore
 def osdThread(env, srcQ, dstQ):
@@ -42,6 +46,7 @@ def osdThread(env, srcQ, dstQ):
         # Submit BlueStore transaction
         with dstQ.put(bsTxn) as put:
             yield put
+
 
 # Batch incoming requests and process
 def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
@@ -61,10 +66,10 @@ def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
         # Batch everything that is now in srcQ or up to bm.batchSize
         # initial batch size is governed by srcQ.capacity
         # but then updated by BatchManagement
-        if bm.batchSize == float('inf'):
+        if bm.batchSize == float("inf"):
             batchSize = len(srcQ.items)
         else:
-            batchSize = int(min(bm.batchSize-1, len(srcQ.items)))
+            batchSize = int(min(bm.batchSize - 1, len(srcQ.items)))
         # Do batch
         for i in range(batchSize):
             with srcQ.get() as get:
@@ -80,24 +85,28 @@ def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
         # Diagnose and manage batching
         bm.manageBatch(batch, batchReqSize, kvQDispatch, kvCommit)
 
+
 # Manage batch sizing
 class BatchManagement:
     def __init__(self, queue, minLatTarget=5000, initInterval=100000):
         self.queue = queue
         # Latency state
-        self.latMap = {}; self.cntMap = {}; self.count = 0; self.lat = 0
+        self.latMap = {}
+        self.cntMap = {}
+        self.count = 0
+        self.lat = 0
         # Controlled Delay (CoDel) state
         self.minLatTarget = minLatTarget
         self.initInterval = self.interval = initInterval
         self.intervalStart = None
         self.minLatViolationCnt = 0
-        self.intervalAdj = lambda x : math.sqrt(x)
+        self.intervalAdj = lambda x: math.sqrt(x)
         self.minLat = None
         # Batch sizing state
         self.batchSize = self.queue.capacity
         self.batchSizeInit = 100
-        self.batchDownSize = lambda x : int(x / 2)
-        self.batchUpSize = lambda x : int(x + 10)
+        self.batchDownSize = lambda x: int(x / 2)
+        self.batchUpSize = lambda x: int(x + 10)
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
@@ -127,7 +136,9 @@ class BatchManagement:
             if self.minLat > self.minLatTarget:
                 # Minimum latency violation
                 self.minLatViolationCnt += 1
-                self.interval = self.initInterval / self.intervalAdj(self.minLatViolationCnt)
+                self.interval = self.initInterval / self.intervalAdj(
+                    self.minLatViolationCnt
+                )
                 # Call batchSizing to downsize batch
                 self.batchSizing(True)
             else:
@@ -141,53 +152,54 @@ class BatchManagement:
 
     def batchSizing(self, isTooLarge):
         if isTooLarge:
-            print('batch size', self.batchSize, 'is too large')
-            if self.batchSize == float('inf'):
+            print("batch size", self.batchSize, "is too large")
+            if self.batchSize == float("inf"):
                 self.batchSize = self.batchSizeInit
             else:
                 self.batchSize = self.batchDownSize(self.batchSize)
-            print('new batch size is', self.batchSize)
-        elif self.batchSize != float('inf'):
-                #print('batch size', self.batchSize, 'gets larger')
-                self.batchSize = self.batchUpSize(self.batchSize)
-                #print('new batch size is', self.batchSize)
+            print("new batch size is", self.batchSize)
+        elif self.batchSize != float("inf"):
+            # print('batch size', self.batchSize, 'gets larger')
+            self.batchSize = self.batchUpSize(self.batchSize)
+            # print('new batch size is', self.batchSize)
 
     def printLats(self, freq=1000):
         if self.count % freq == 0:
             for priority in self.latMap.keys():
                 print(priority, self.latMap[priority] / self.cntMap[priority] / 1000000)
-            print('total', self.lat / self.count / 1000000)
+            print("total", self.lat / self.count / 1000000)
 
-if __name__ == '__main__':
 
-        env = simpy.Environment()
+if __name__ == "__main__":
 
-        # Constants
-        meanInterArrivalTime = 28500 # micro seconds
-        meanReqSize = 4096 # bytes
-        #meanInterArrivalTime = 4200 # micro seconds
-        #meanReqSize = 16 * 4096 # bytes
+    env = simpy.Environment()
 
-        # OSD queue(s)
-        # Add capacity parameter for max queue lengths
-        osdQ1 = simpy.PriorityStore(env)
-        osdQ2 = simpy.PriorityStore(env)
-        #osdQ = simpy.Store(env) # infinite capacity
+    # Constants
+    meanInterArrivalTime = 28500  # micro seconds
+    meanReqSize = 4096  # bytes
+    # meanInterArrivalTime = 4200 # micro seconds
+    # meanReqSize = 16 * 4096 # bytes
 
-        # KV queue (capacity translates into initial batch size)
-        kvQ = simpy.Store(env, 1)
+    # OSD queue(s)
+    # Add capacity parameter for max queue lengths
+    osdQ1 = simpy.PriorityStore(env)
+    osdQ2 = simpy.PriorityStore(env)
+    # osdQ = simpy.Store(env) # infinite capacity
 
-        # OSD client(s), each with a particular priority pushing request into a particular queue
-        env.process(osdClient(env, 1, meanInterArrivalTime*2, meanReqSize, osdQ1))
-        env.process(osdClient(env, 2, meanInterArrivalTime*2, meanReqSize, osdQ1))
+    # KV queue (capacity translates into initial batch size)
+    kvQ = simpy.Store(env, 1)
 
-        # OSD thread(s) (one per OSD queue)
-        # env.process(osdThread(env, osdQ, kvQ))
-        env.process(osdThread(env, osdQ1, kvQ))
-        env.process(osdThread(env, osdQ2, kvQ))
+    # OSD client(s), each with a particular priority pushing request into a particular queue
+    env.process(osdClient(env, 1, meanInterArrivalTime * 2, meanReqSize, osdQ1))
+    env.process(osdClient(env, 2, meanInterArrivalTime * 2, meanReqSize, osdQ1))
 
-        # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
-        env.process(kvThread(env, kvQ, 80000, 1600000))
+    # OSD thread(s) (one per OSD queue)
+    # env.process(osdThread(env, osdQ, kvQ))
+    env.process(osdThread(env, osdQ1, kvQ))
+    env.process(osdThread(env, osdQ2, kvQ))
 
-        # Run simulation
-        env.run(120 * 60 * 1000000)
+    # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
+    env.process(kvThread(env, kvQ, 80000, 1600000))
+
+    # Run simulation
+    env.run(120 * 60 * 1000000)
