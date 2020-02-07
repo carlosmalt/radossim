@@ -1,1 +1,4 @@
 simpy
+papermill
+ipykernel
+matplotlib

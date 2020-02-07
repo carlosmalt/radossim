@@ -6,13 +6,13 @@ workflow "rados simulation" {
 
 action "install python modules" {
   uses = "jefftriplett/python-actions@master"
-  args = "pip install -r ./scripts/requirements.txt"
+  args = "pip install -r /github/workspace/scripts/requirements.txt"
 }
 
 action "run simulation" {
   needs = ["install python modules"]
   uses = "jefftriplett/python-actions@master"
   args = [
-    "python ./scripts/radossim.py"
+    "python /github/workspace/scripts/radossim.py"
   ]
 }
