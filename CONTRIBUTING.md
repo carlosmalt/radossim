@@ -1,0 +1,4 @@
+- Create one or more issues describing what you are working on
+- Try to associate commits with one or more issues
+- Run Python code through [black](https://github.com/psf/black) before committing
+- Work on a branch and start a pull request instead of pushing into master
