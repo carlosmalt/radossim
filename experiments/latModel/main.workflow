@@ -13,8 +13,8 @@ action "run notebook" {
   uses = "jefftriplett/python-actions@master"
   args = [
     "python /github/workspace/scripts/run-nb-experiment.py",
-    "latModel.ipynb",
-    "latModel-out.ipynb",
-    "parameters.json"
+    "/github/workspace/experiments/latModel/latModel.ipynb",
+    "/github/workspace/experiments/latModel/latModel-out.ipynb",
+    "/github/workspace/experiments/latModel/parameters.json"
   ]
 }
