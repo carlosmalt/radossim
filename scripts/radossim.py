@@ -8,7 +8,7 @@ import math
 # Predict request process time in micro seconds (roughly based on spinning media model
 # kaldewey:rtas08, Fig 2)
 def latModel(
-    reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=5, sigma=5
+    reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=6.0, sigma=2.0
 ):
     # Request size-dependent component
     runLen = reqSize / 4096.0
