@@ -1,0 +1,31 @@
+fio-write: (g=0): rw=randwrite, bs=(R) 512KiB-512KiB, (W) 512KiB-512KiB, (T) 512KiB-512KiB, ioengine=rbd, iodepth=48
+fio-3.18-8-g1b5e1
+Starting 1 process
+
+fio-write: (groupid=0, jobs=1): err= 0: pid=23416: Tue Feb 18 23:28:40 2020
+  write: IOPS=627, BW=314MiB/s (329MB/s)(9430MiB/30077msec); 0 zone resets
+    slat (usec): min=88, max=3162, avg=223.35, stdev=65.07
+    clat (msec): min=2, max=501, avg=76.30, stdev=86.64
+     lat (msec): min=3, max=501, avg=76.52, stdev=86.64
+    clat percentiles (msec):
+     |  1.00th=[    5],  5.00th=[    6], 10.00th=[    7], 20.00th=[    8],
+     | 30.00th=[    9], 40.00th=[   11], 50.00th=[   16], 60.00th=[   96],
+     | 70.00th=[  110], 80.00th=[  144], 90.00th=[  201], 95.00th=[  257],
+     | 99.00th=[  326], 99.50th=[  384], 99.90th=[  456], 99.95th=[  468],
+     | 99.99th=[  493]
+   bw (  KiB/s): min=260096, max=356352, per=100.00%, avg=321325.75, stdev=24985.46, samples=59
+   iops        : min=  508, max=  696, avg=627.58, stdev=48.83, samples=59
+  lat (msec)   : 4=0.47%, 10=38.86%, 20=14.09%, 50=0.65%, 100=9.38%
+  lat (msec)   : 250=31.04%, 500=5.50%, 750=0.01%
+  cpu          : usr=14.60%, sys=0.93%, ctx=10125, majf=0, minf=48294
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=0.1%, 16=0.1%, 32=99.8%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.1%, >=64=0.0%
+     issued rwts: total=0,18859,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=48
+
+Run status group 0 (all jobs):
+  WRITE: bw=314MiB/s (329MB/s), 314MiB/s-314MiB/s (329MB/s-329MB/s), io=9430MiB (9888MB), run=30077-30077msec
+
+Disk stats (read/write):
+  sda: ios=0/382, merge=0/308, ticks=0/9264, in_queue=9260, util=5.56%
