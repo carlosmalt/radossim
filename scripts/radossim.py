@@ -50,7 +50,7 @@ def osdThread(env, srcQ, dstQ):
 
 # Batch incoming requests and process
 def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
-    bm = BatchManagement(srcQ, targetLat, measInterval)
+    bm = DelayManagement(srcQ, targetLat, measInterval)
     while True:
         # Create batch
         batch = []
@@ -86,8 +86,8 @@ def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
         bm.manageBatch(batch, batchReqSize, kvQDispatch, kvCommit)
 
 
-# Manage batch sizing
-class BatchManagement:
+# Manage delay sizing
+class DelayManagement:
     def __init__(self, queue, minLatTarget=5000, initInterval=100000):
         self.queue = queue
         # Latency state
@@ -107,6 +107,8 @@ class BatchManagement:
         self.batchSizeInit = 100
         self.batchDownSize = lambda x: int(x / 2)
         self.batchUpSize = lambda x: int(x + 10)
+        # Delay sizing state
+        self.delaySize =
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
@@ -140,13 +142,15 @@ class BatchManagement:
                     self.minLatViolationCnt
                 )
                 # Call batchSizing to downsize batch
-                self.batchSizing(True)
+                # self.batchSizing(True)
+                self.delaySizing(True)
             else:
                 # No violation: reset count and interval length
                 self.minLatViolationCnt = 0
                 self.interval = self.initInterval
                 # Call batchSizing to upsize batch
-                self.batchSizing(False)
+                # self.batchSizing(False)
+                self.delaySizing(False)
             self.minLat = None
             self.intervalStart = currentTime
 
@@ -163,6 +167,17 @@ class BatchManagement:
             self.batchSize = self.batchUpSize(self.batchSize)
             # print('new batch size is', self.batchSize)
 
+    def delaySizing(self, isTooShort):
+        if isTooShort:
+            print("delay size", self.delaySize, "is too short")
+            if self.delaySize == 0:
+                self.delaySize = self.delaySizeInit
+            else:
+                self.delaySize = self.delayUpSize(self.delaySize)
+            print("new delay size is", self.delaySize)
+        elif self.delaySize != 0:
+            self.delaySize = self.delayDownSize(self.delaySize)
+
     def printLats(self, freq=1000):
         if self.count % freq == 0:
             for priority in self.latMap.keys():
@@ -171,6 +186,13 @@ class BatchManagement:
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    #parser.add_argument("input", help="input Jupyter notebook")
+    #parser.add_argument("output", help="output Jupyter notebook")
+    #parser.add_argument("parameters", help="parameter file in JSON")
+    #args = parser.parse_args()
 
     env = simpy.Environment()
 
