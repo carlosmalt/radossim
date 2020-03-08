@@ -13,20 +13,22 @@ totalRuntime = 0
 avgThroughput = 0
 averageLatency = 0
 
+# codel variables
+codel_const_lat = 300
+codel_target_lat = 1450
+
 # collecting internal states
 blocking_dur_vec = [] # store all generated blocking duration
 osd_queue_size_vec = []   # snapshot osd_queue size
 kv_queue_size_vec = []    # snapshot kv_queue size
-bs_lat_vec = []      # store bs_lat = kv_queueing_lat + commit_lat
+bs_lat_vec = []      # store (priority,bs_lat = kv_queueing_lat + commit_lat,osdArrTime,kvArrTime)
+total_lat_vec = [] # osd_lat + bs_lat
 min_lat_vec = []      # store all min_lat
-
-#reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=5764.36, mu=5.0, sigma=0.5
 
 # Predict request process time in micro seconds (roughly based on spinning media model
 # kaldewey:rtas08, Fig 2)
 def latModel(
-    reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=6.0, sigma=2.0
-):
+    reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=5905.97, mu=5.1, sigma=.415):
     # Request size-dependent component
     runLen = reqSize / 4096.0
     if runLen > 16:
@@ -42,10 +44,14 @@ def latModel(
 # Create requests with a fixed priority and certain inter-arrival and size distributions
 def osdClient(env, priority, meanInterArrivalTime, meanReqSize, dstQ):
     while True:
-        # Wait until arrival timev
-        yield env.timeout(random.expovariate(1.0 / meanInterArrivalTime))
-        # Assemble request and timestamp
-        request = (priority, random.expovariate(1.0 / meanReqSize), env.now)
+        # Wait until arrival timev(normal distribution)
+        #yield env.timeout(random.expovariate(1.0 / meanInterArrivalTime))
+        #uniform distribution
+        yield env.timeout(meanInterArrivalTime)
+        # Assemble request and timestamp(normal distribution)
+        #request = (priority, random.expovariate(1.0 / meanReqSize), env.now)
+        # uniform distribution
+        request = (priority, meanReqSize, env.now)
         # Submit request
         with dstQ.put(request) as put:
             yield put            
@@ -53,10 +59,13 @@ def osdClient(env, priority, meanInterArrivalTime, meanReqSize, dstQ):
 
 # Move requests to BlueStore
 def osdThread(env, srcQ, dstQ):
+    #global totalBytes
     while True:
         # Wait until there is something in the srcQ
         with srcQ.get() as get:
+             
             osdRequest = yield get
+            #totalBytes += osdRequest[1]
             # Timestamp transaction (after this time request cannot be prioritized)
             curTime = env.now
             if curTime < blockNext:
@@ -126,9 +135,9 @@ class BatchManagement:
         self.minLatViolationCnt = 0
         self.intervalAdj = lambda x: math.sqrt(x)
         self.minLat = None
-        self.preBlockingDur = 0
+        self.preBlockingDur = codel_const_lat
         self.curBlockingDur = 0
-        self.constLat = 500
+        self.constLat = codel_const_lat
         # Batch sizing state
         self.batchSize = self.queue.capacity
         self.batchSizeInit = 100
@@ -144,7 +153,9 @@ class BatchManagement:
             osdQLat = arrivalKV - arrivalOSD # op_queue latency
             kvQLat = dispatchTime - arrivalKV # kv_queue latency
             bs_lat = kvQLat + commitTime # kv_queue queueing time plus commit time
-            bs_lat_vec.append((priority,bs_lat))
+            bs_lat_vec.append((priority,bs_lat,txn[0][2],txn[1]))
+            total_lat_vec.append((priority,osdQLat + bs_lat,txn[0][2],txn[1]))
+            #print((priority,bs_lat,txn[0][2],txn[1]))
             #if not self.minLat or kvQLat < self.minLat:
             if not self.minLat or bs_lat < self.minLat:
                 self.minLat = bs_lat # get the min lat in a batch
@@ -169,11 +180,30 @@ class BatchManagement:
     def compareLatency(self, currentTime):
         global blockNext
         min_lat_vec.append(self.minLat)
+        '''# rule 01 ------------->
         if self.minLat <= self.minLatTarget:
             self.curBlockingDur = self.preBlockingDur / 2
-        # violation
         else:
             self.curBlockingDur = self.preBlockingDur + self.constLat
+        # rule 01 <-------------'''
+        '''# rule 02 ------------->
+        if self.minLat <= self.minLatTarget:
+            self.curBlockingDur = self.preBlockingDur - self.constLat
+        else:
+            if self.preBlockingDur > 0:
+                self.curBlockingDur = self.preBlockingDur * 2
+            else:
+                self.curBlockingDur = self.constLat
+        # rule 02 <-------------'''
+        # rule 03 ------------->
+        if self.minLat <= self.minLatTarget:
+            self.curBlockingDur = self.preBlockingDur / 2
+        else:
+            if self.preBlockingDur > 0:
+                self.curBlockingDur = self.preBlockingDur * 2
+            else:
+                self.curBlockingDur = self.constLat
+        # rule 03 <-------------
         blocking_dur_vec.append(self.curBlockingDur)
         self.preBlockingDur = self.curBlockingDur
         blockNext = currentTime + self.curBlockingDur
@@ -227,7 +257,7 @@ if __name__ == "__main__":
     env = simpy.Environment()
     print("enableBlocking =",enableBlocking)
     # Constants
-    meanInterArrivalTime = 28500  # micro seconds
+    meanInterArrivalTime = 200 #28500  # micro seconds
     meanReqSize = 4096  # bytes
     # meanInterArrivalTime = 4200 # micro seconds
     # meanReqSize = 16 * 4096 # bytes
@@ -239,7 +269,8 @@ if __name__ == "__main__":
     # osdQ = simpy.Store(env) # infinite capacity
 
     # KV queue (capacity translates into initial batch size)
-    kvQ = simpy.Store(env, 5)
+    #kvQ = simpy.Store(env, 1)
+    kvQ = simpy.Store(env, 20)
 
     # OSD client(s), each with a particular priority pushing request into a particular queue
     env.process(osdClient(env, 1, meanInterArrivalTime * 2, meanReqSize, osdQ1))
@@ -253,15 +284,22 @@ if __name__ == "__main__":
 
     # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
     #env.process(kvThread(env, kvQ, 80000, 1600000))
-    env.process(kvThread(env, kvQ, 17157, 1600000))
+    # codel: change $3 to adjust target_delay 
+    env.process(kvThread(env, kvQ, codel_target_lat, 1600000))
 
     # Run simulation
     #env.run(120 * 60 * 1000000) # 2 hrs
-    totalRuntime = 5 * 60 * 1000000 # 5 mins
-    env.run(totalRuntime)
+    totalRuntime = 1 * 60 * 1000000 # 1 mins
+    env.run(until=totalRuntime)
+    
+    # print CoDel parameters
+    print("-------- CoDel Parameters --------")
+    print("target lat =",codel_target_lat)
+    print("const lat =",codel_const_lat)
     
     # print average throughput
+    print("----------------------------------")
     avgThroughput = totalBytes / (totalRuntime / 1000000)
     print("total bytes =",totalBytes)
-    print("total time =",totalRuntime / 1000000)
+    print("total time(s) =",totalRuntime / 1000000)
     print("average throughput(MB/s) =",avgThroughput / 1048576)
