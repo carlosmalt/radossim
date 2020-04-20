@@ -1,0 +1,2 @@
+bs,runtime,qdepth,bw_mbs,lat_s,osd_op_w_lat,op_queue_lat,osd_on_committed_lat,bluestore_writes_lat,bluestore_simple_writes_lat,bluestore_deferred_writes_lat,kv_queue_lat,bluestore_kv_sync_lat,bluestore_kvq_lat,bluestore_simple_service_lat,bluestore_deferred_service_lat
+4096,30,48,50.46093750000000000000,.00371421781579400000,0.002471266,0.000909917,0.001489526,0.001222475,0.001238819,0.000647703,0.000424298,0.00055116,0.0010638,0.000751163,0.000469638

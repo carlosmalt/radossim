@@ -1,0 +1,51 @@
+2020-03-01 22:19:40,617 pypet ERROR    ERROR occurred during a single run! 
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 259, in _sigint_handling_single_run
+    return _single_run(kwargs)
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 314, in _single_run
+    result = runfunc(traj, *runargs, **kwrunparams)
+  File "<ipython-input-33-d91985861dac>", line 81, in exploreVal
+    z = validateMod(4096, lgMult, lgAdd, traj.smMult, traj.smAdd, traj.mu, traj.sigma)
+  File "<ipython-input-33-d91985861dac>", line 76, in validateMod
+    plt.show()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/pyplot.py", line 269, in show
+    return _show(*args, **kw)
+  File "/usr/local/lib/python3.7/site-packages/ipykernel/pylab/backend_inline.py", line 43, in show
+    metadata=_fetch_figure_metadata(figure_manager.canvas.figure)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/display.py", line 313, in display
+    format_dict, md_dict = format(obj, include=include, exclude=exclude)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 180, in format
+    data = formatter(obj)
+  File "</usr/local/lib/python3.7/site-packages/decorator.py:decorator-gen-9>", line 2, in __call__
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 224, in catch_format_error
+    r = method(self, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 341, in __call__
+    return printer(obj)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/pylabtools.py", line 248, in <lambda>
+    png_formatter.for_type(Figure, lambda fig: print_figure(fig, 'png', **kwargs))
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/pylabtools.py", line 132, in print_figure
+    fig.canvas.print_figure(bytes_io, **kw)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backend_bases.py", line 2069, in print_figure
+    bbox_extra_artists=bbox_artists)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/figure.py", line 2367, in get_tightbbox
+    bbox = a.get_tightbbox(renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 1162, in get_tightbbox
+    ticks_to_draw = self._update_ticks()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 1087, in _update_ticks
+    minor_locs = self.get_minorticklocs()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 1340, in get_minorticklocs
+    loc for loc, tr_loc in zip(minor_locs, tr_minor_locs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 1341, in <listcomp>
+    if ~np.isclose(tr_loc, tr_major_locs, atol=tol, rtol=0).any()]
+  File "<__array_function__ internals>", line 6, in isclose
+  File "/usr/local/lib/python3.7/site-packages/numpy/core/numeric.py", line 2260, in isclose
+    return within_tol(x, y, atol, rtol)
+  File "/usr/local/lib/python3.7/site-packages/numpy/core/numeric.py", line 2246, in within_tol
+    return less_equal(abs(x-y), atol + rtol * abs(y))
+  File "/usr/local/lib/python3.7/site-packages/numpy/core/_ufunc_config.py", line 447, in __exit__
+    seterr(**self.oldstate)
+  File "/usr/local/lib/python3.7/site-packages/numpy/core/_ufunc_config.py", line 118, in seterr
+    old = geterr()
+  File "/usr/local/lib/python3.7/site-packages/numpy/core/_ufunc_config.py", line 139, in geterr
+    @set_module('numpy')
+KeyboardInterrupt

@@ -1,5 +1,6 @@
 # Simulate the interaction between osd queues and kv queue that causes
 # bufferbloat
+# use blocking mechanism
 
 import simpy
 import random
@@ -14,16 +15,16 @@ avgThroughput = 0
 averageLatency = 0
 
 # codel variables
-codel_const_lat = 300
-codel_target_lat = 1450
+codel_const_lat = 160
+codel_target_lat = 1439
 
 # collecting internal states
 blocking_dur_vec = [] # store all generated blocking duration
 osd_queue_size_vec = []   # snapshot osd_queue size
 kv_queue_size_vec = []    # snapshot kv_queue size
-bs_lat_vec = []      # store (priority,bs_lat = kv_queueing_lat + commit_lat,osdArrTime,kvArrTime)
-total_lat_vec = [] # osd_lat + bs_lat
-min_lat_vec = []      # store all min_lat
+bs_lat_vec = []           # store (priority,bs_lat = kv_queueing_lat + commit_lat,osdArrTime,kvArrTime)
+total_lat_vec = []        # osd_lat + bs_lat
+min_lat_vec = []          # store all min_lat
 
 # Predict request process time in micro seconds (roughly based on spinning media model
 # kaldewey:rtas08, Fig 2)
@@ -73,6 +74,9 @@ def osdThread(env, srcQ, dstQ):
             bsTxn = (osdRequest, env.now)
         osd_queue_size_vec.append(len(srcQ.items))
         # Submit BlueStore transaction
+        #print("batch size =",len(srcQ.items),"items =",srcQ.items)
+        #if len(srcQ.items) == 4:
+            #print(srcQ.items)
         with dstQ.put(bsTxn) as put:
             yield put
 
@@ -114,6 +118,7 @@ def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
         yield env.timeout(latModel(batchReqSize))
         kvCommit = env.now - kvQDispatch
         # Diagnose and manage batching
+        #print("batchReqSize =",batchReqSize)
         bm.manageBatch(batch, batchReqSize, kvQDispatch, kvCommit)
         totalBytes += batchReqSize 
         #print(batchReqSize,totalBytes)
@@ -153,6 +158,7 @@ class BatchManagement:
             osdQLat = arrivalKV - arrivalOSD # op_queue latency
             kvQLat = dispatchTime - arrivalKV # kv_queue latency
             bs_lat = kvQLat + commitTime # kv_queue queueing time plus commit time
+            #print(txn[0])
             bs_lat_vec.append((priority,bs_lat,txn[0][2],txn[1]))
             total_lat_vec.append((priority,osdQLat + bs_lat,txn[0][2],txn[1]))
             #print((priority,bs_lat,txn[0][2],txn[1]))
@@ -180,22 +186,30 @@ class BatchManagement:
     def compareLatency(self, currentTime):
         global blockNext
         min_lat_vec.append(self.minLat)
-        '''# rule 01 ------------->
+        # rule 01 ------------->
         if self.minLat <= self.minLatTarget:
             self.curBlockingDur = self.preBlockingDur / 2
         else:
             self.curBlockingDur = self.preBlockingDur + self.constLat
-        # rule 01 <-------------'''
+        # rule 01 <-------------
         '''# rule 02 ------------->
         if self.minLat <= self.minLatTarget:
-            self.curBlockingDur = self.preBlockingDur - self.constLat
+            self.curBlockingDur = self.preBlockingDur / 2
         else:
-            if self.preBlockingDur > 0:
-                self.curBlockingDur = self.preBlockingDur * 2
+            if self.preBlockingDur == 0:
+                self.preBlockingDur = self.constLat
+            self.curBlockingDur = self.preBlockingDur * 2
+        # rule 02 <-------------'''
+        '''# rule 03 ------------->
+        if self.minLat <= self.minLatTarget:
+            if self.preBlockingDur >= self.constLat:
+                self.curBlockingDur = self.preBlockingDur - self.constLat
             else:
                 self.curBlockingDur = self.constLat
-        # rule 02 <-------------'''
-        # rule 03 ------------->
+        else:
+            self.curBlockingDur = self.preBlockingDur * 2
+        # rule 03 <-------------'''
+        '''# rule 04 ------------->
         if self.minLat <= self.minLatTarget:
             self.curBlockingDur = self.preBlockingDur / 2
         else:
@@ -203,7 +217,13 @@ class BatchManagement:
                 self.curBlockingDur = self.preBlockingDur * 2
             else:
                 self.curBlockingDur = self.constLat
-        # rule 03 <-------------
+        # rule 04 <-------------'''
+        '''# rule  ------------->doesn't work
+        if self.minLat <= self.minLatTarget:
+            self.curBlockingDur = self.preBlockingDur - self.constLat
+        else:
+            self.curBlockingDur = self.preBlockingDur + self.constLat
+        # rule  <-------------'''
         blocking_dur_vec.append(self.curBlockingDur)
         self.preBlockingDur = self.curBlockingDur
         blockNext = currentTime + self.curBlockingDur
@@ -251,7 +271,6 @@ class BatchManagement:
             for priority in self.latMap.keys():
                 print(priority, self.latMap[priority] / self.cntMap[priority] / 1000000)
             print("total", self.lat / self.count / 1000000)
-            
 
 if __name__ == "__main__":
     env = simpy.Environment()
@@ -270,9 +289,9 @@ if __name__ == "__main__":
 
     # KV queue (capacity translates into initial batch size)
     #kvQ = simpy.Store(env, 1)
-    kvQ = simpy.Store(env, 20)
+    kvQ = simpy.Store(env) # store capacity defalut is infinity
 
-    # OSD client(s), each with a particular priority pushing request into a particular queue
+    # OSD client(s), each with a particular priority pushing request into a particular queue'# lower value are more important(eg:1 has higher priority than 2)
     env.process(osdClient(env, 1, meanInterArrivalTime * 2, meanReqSize, osdQ1))
     env.process(osdClient(env, 2, meanInterArrivalTime * 2, meanReqSize, osdQ1))
 
@@ -289,7 +308,7 @@ if __name__ == "__main__":
 
     # Run simulation
     #env.run(120 * 60 * 1000000) # 2 hrs
-    totalRuntime = 1 * 60 * 1000000 # 1 mins
+    totalRuntime = 60 * 60 * 1000000
     env.run(until=totalRuntime)
     
     # print CoDel parameters
@@ -303,3 +322,5 @@ if __name__ == "__main__":
     print("total bytes =",totalBytes)
     print("total time(s) =",totalRuntime / 1000000)
     print("average throughput(MB/s) =",avgThroughput / 1048576)
+    
+    

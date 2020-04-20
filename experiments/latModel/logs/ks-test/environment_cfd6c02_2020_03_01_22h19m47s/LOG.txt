@@ -1,0 +1,101 @@
+2020-03-01 22:19:47,844 pypet.storageservice.HDF5StorageService INFO     I will use the hdf5 file `./HDF/ks-test.hdf5`.
+2020-03-01 22:19:47,848 pypet.storageservice.HDF5StorageService INFO     You specified ``overwrite_file=True``, so I deleted the file `./HDF/ks-test.hdf5`.
+2020-03-01 22:19:47,851 pypet.environment.Environment INFO     Environment initialized.
+2020-03-01 22:19:47,914 pypet.environment.Environment INFO     I am preparing the Trajectory for the experiment and initialise the store.
+2020-03-01 22:19:47,915 pypet.environment.Environment INFO     Initialising the storage for the trajectory.
+2020-03-01 22:19:47,918 pypet.storageservice.HDF5StorageService INFO     Initialising storage or updating meta data of Trajectory `ks-test`.
+2020-03-01 22:19:47,966 pypet.storageservice.HDF5StorageService INFO     Finished init or meta data update for `ks-test`.
+2020-03-01 22:19:47,969 pypet.environment.Environment INFO     
+************************************************************
+STARTING runs of trajectory
+`ks-test`.
+************************************************************
+
+2020-03-01 22:19:47,970 pypet INFO     PROGRESS: Finished    0/1680 runs [                    ]  0.0%
+2020-03-01 22:19:47,970 pypet INFO     
+=========================================
+ Starting single run #0 of 1680 
+=========================================
+
+2020-03-01 22:19:48,349 pypet INFO     
+=========================================
+ Finished single run #0 of 1680 
+=========================================
+
+2020-03-01 22:19:48,349 pypet INFO     
+=========================================
+ Starting single run #1 of 1680 
+=========================================
+
+2020-03-01 22:19:48,683 pypet INFO     
+=========================================
+ Finished single run #1 of 1680 
+=========================================
+
+2020-03-01 22:19:48,684 pypet INFO     
+=========================================
+ Starting single run #2 of 1680 
+=========================================
+
+2020-03-01 22:19:48,995 pypet INFO     
+=========================================
+ Finished single run #2 of 1680 
+=========================================
+
+2020-03-01 22:19:48,996 pypet INFO     
+=========================================
+ Starting single run #3 of 1680 
+=========================================
+
+2020-03-01 22:19:49,227 pypet ERROR    ERROR occurred during a single run! 
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 259, in _sigint_handling_single_run
+    return _single_run(kwargs)
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 314, in _single_run
+    result = runfunc(traj, *runargs, **kwrunparams)
+  File "<ipython-input-35-278a4ab4508a>", line 81, in exploreVal
+    z = validateMod(4096, lgMult, lgAdd, traj.smMult, traj.smAdd, traj.mu, traj.sigma)
+  File "<ipython-input-35-278a4ab4508a>", line 76, in validateMod
+    plt.show()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/pyplot.py", line 269, in show
+    return _show(*args, **kw)
+  File "/usr/local/lib/python3.7/site-packages/ipykernel/pylab/backend_inline.py", line 43, in show
+    metadata=_fetch_figure_metadata(figure_manager.canvas.figure)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/display.py", line 313, in display
+    format_dict, md_dict = format(obj, include=include, exclude=exclude)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 180, in format
+    data = formatter(obj)
+  File "</usr/local/lib/python3.7/site-packages/decorator.py:decorator-gen-9>", line 2, in __call__
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 224, in catch_format_error
+    r = method(self, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 341, in __call__
+    return printer(obj)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/pylabtools.py", line 248, in <lambda>
+    png_formatter.for_type(Figure, lambda fig: print_figure(fig, 'png', **kwargs))
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/pylabtools.py", line 132, in print_figure
+    fig.canvas.print_figure(bytes_io, **kw)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backend_bases.py", line 2091, in print_figure
+    **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backends/backend_agg.py", line 527, in print_png
+    FigureCanvasAgg.draw(self)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backends/backend_agg.py", line 388, in draw
+    self.figure.draw(self.renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/artist.py", line 38, in draw_wrapper
+    return draw(artist, renderer, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/figure.py", line 1709, in draw
+    renderer, self, artists, self.suppressComposite)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/image.py", line 135, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/artist.py", line 38, in draw_wrapper
+    return draw(artist, renderer, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axes/_base.py", line 2607, in draw
+    self._update_title_position(renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axes/_base.py", line 2556, in _update_title_position
+    if title.get_window_extent(renderer).ymin < top:
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/text.py", line 890, in get_window_extent
+    bbox, info, descent = self._get_layout(self._renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/text.py", line 298, in _get_layout
+    clean_line, self._fontproperties, ismath=ismath)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backends/backend_agg.py", line 211, in get_text_width_height_descent
+    font.set_text(s, 0.0, flags=flags)
+KeyboardInterrupt

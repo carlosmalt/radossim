@@ -1,2 +1,0 @@
-bs,runtime,qdepth,bw_mbs,lat_s,bluestore_kv_sync_lat,bluestore_kvq_lat
-4096,300,48,0.000641075,0.001176966

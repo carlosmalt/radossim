@@ -1,0 +1,23 @@
+2020-03-01 22:06:33,248 pypet ERROR    ERROR occurred during a single run! 
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 259, in _sigint_handling_single_run
+    return _single_run(kwargs)
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 314, in _single_run
+    result = runfunc(traj, *runargs, **kwrunparams)
+  File "<ipython-input-32-278a4ab4508a>", line 81, in exploreVal
+    z = validateMod(4096, lgMult, lgAdd, traj.smMult, traj.smAdd, traj.mu, traj.sigma)
+  File "<ipython-input-32-278a4ab4508a>", line 69, in validateMod
+    fig, ax = plt.subplots()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/pyplot.py", line 1212, in subplots
+    gridspec_kw=gridspec_kw)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/figure.py", line 1575, in subplots
+    axarr[row, col] = self.add_subplot(gs[row, col], **subplot_kw)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/figure.py", line 1414, in add_subplot
+    a = subplot_class_factory(projection_class)(self, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axes/_subplots.py", line 69, in __init__
+    self._axes_class.__init__(self, fig, self.figbox, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axes/_base.py", line 495, in __init__
+    self.cla()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axes/_base.py", line 1076, in cla
+    for _title in (self.title, self._left_title, self._right_title):
+KeyboardInterrupt

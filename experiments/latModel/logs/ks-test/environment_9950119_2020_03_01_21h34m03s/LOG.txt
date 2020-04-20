@@ -1,0 +1,337 @@
+2020-03-01 21:34:03,323 pypet.storageservice.HDF5StorageService INFO     I will use the hdf5 file `./HDF/ks-test.hdf5`.
+2020-03-01 21:34:03,327 pypet.storageservice.HDF5StorageService INFO     You specified ``overwrite_file=True``, so I deleted the file `./HDF/ks-test.hdf5`.
+2020-03-01 21:34:03,332 pypet.environment.Environment INFO     Environment initialized.
+2020-03-01 21:34:03,401 pypet.environment.Environment INFO     I am preparing the Trajectory for the experiment and initialise the store.
+2020-03-01 21:34:03,402 pypet.environment.Environment INFO     Initialising the storage for the trajectory.
+2020-03-01 21:34:03,407 pypet.storageservice.HDF5StorageService INFO     Initialising storage or updating meta data of Trajectory `ks-test`.
+2020-03-01 21:34:03,468 pypet.storageservice.HDF5StorageService INFO     Finished init or meta data update for `ks-test`.
+2020-03-01 21:34:03,473 pypet.environment.Environment INFO     
+************************************************************
+STARTING runs of trajectory
+`ks-test`.
+************************************************************
+
+2020-03-01 21:34:03,474 pypet INFO     PROGRESS: Finished    0/1680 runs [                    ]  0.0%
+2020-03-01 21:34:03,475 pypet INFO     
+=========================================
+ Starting single run #0 of 1680 
+=========================================
+
+2020-03-01 21:34:03,888 pypet INFO     
+=========================================
+ Finished single run #0 of 1680 
+=========================================
+
+2020-03-01 21:34:03,889 pypet INFO     
+=========================================
+ Starting single run #1 of 1680 
+=========================================
+
+2020-03-01 21:34:04,234 pypet INFO     
+=========================================
+ Finished single run #1 of 1680 
+=========================================
+
+2020-03-01 21:34:04,235 pypet INFO     
+=========================================
+ Starting single run #2 of 1680 
+=========================================
+
+2020-03-01 21:34:04,621 pypet INFO     
+=========================================
+ Finished single run #2 of 1680 
+=========================================
+
+2020-03-01 21:34:04,622 pypet INFO     
+=========================================
+ Starting single run #3 of 1680 
+=========================================
+
+2020-03-01 21:34:05,000 pypet INFO     
+=========================================
+ Finished single run #3 of 1680 
+=========================================
+
+2020-03-01 21:34:05,001 pypet INFO     
+=========================================
+ Starting single run #4 of 1680 
+=========================================
+
+2020-03-01 21:34:05,432 pypet INFO     
+=========================================
+ Finished single run #4 of 1680 
+=========================================
+
+2020-03-01 21:34:05,433 pypet INFO     
+=========================================
+ Starting single run #5 of 1680 
+=========================================
+
+2020-03-01 21:34:05,788 pypet INFO     
+=========================================
+ Finished single run #5 of 1680 
+=========================================
+
+2020-03-01 21:34:05,789 pypet INFO     
+=========================================
+ Starting single run #6 of 1680 
+=========================================
+
+2020-03-01 21:34:06,116 pypet INFO     
+=========================================
+ Finished single run #6 of 1680 
+=========================================
+
+2020-03-01 21:34:06,116 pypet INFO     
+=========================================
+ Starting single run #7 of 1680 
+=========================================
+
+2020-03-01 21:34:06,455 pypet INFO     
+=========================================
+ Finished single run #7 of 1680 
+=========================================
+
+2020-03-01 21:34:06,456 pypet INFO     
+=========================================
+ Starting single run #8 of 1680 
+=========================================
+
+2020-03-01 21:34:06,794 pypet INFO     
+=========================================
+ Finished single run #8 of 1680 
+=========================================
+
+2020-03-01 21:34:06,795 pypet INFO     
+=========================================
+ Starting single run #9 of 1680 
+=========================================
+
+2020-03-01 21:34:07,118 pypet INFO     
+=========================================
+ Finished single run #9 of 1680 
+=========================================
+
+2020-03-01 21:34:07,119 pypet INFO     
+=========================================
+ Starting single run #10 of 1680 
+=========================================
+
+2020-03-01 21:34:07,460 pypet INFO     
+=========================================
+ Finished single run #10 of 1680 
+=========================================
+
+2020-03-01 21:34:07,461 pypet INFO     
+=========================================
+ Starting single run #11 of 1680 
+=========================================
+
+2020-03-01 21:34:07,803 pypet INFO     
+=========================================
+ Finished single run #11 of 1680 
+=========================================
+
+2020-03-01 21:34:07,804 pypet INFO     
+=========================================
+ Starting single run #12 of 1680 
+=========================================
+
+2020-03-01 21:34:08,233 pypet INFO     
+=========================================
+ Finished single run #12 of 1680 
+=========================================
+
+2020-03-01 21:34:08,234 pypet INFO     
+=========================================
+ Starting single run #13 of 1680 
+=========================================
+
+2020-03-01 21:34:08,550 pypet INFO     
+=========================================
+ Finished single run #13 of 1680 
+=========================================
+
+2020-03-01 21:34:08,551 pypet INFO     
+=========================================
+ Starting single run #14 of 1680 
+=========================================
+
+2020-03-01 21:34:08,905 pypet INFO     
+=========================================
+ Finished single run #14 of 1680 
+=========================================
+
+2020-03-01 21:34:08,906 pypet INFO     
+=========================================
+ Starting single run #15 of 1680 
+=========================================
+
+2020-03-01 21:34:09,262 pypet INFO     
+=========================================
+ Finished single run #15 of 1680 
+=========================================
+
+2020-03-01 21:34:09,264 pypet INFO     
+=========================================
+ Starting single run #16 of 1680 
+=========================================
+
+2020-03-01 21:34:09,617 pypet INFO     
+=========================================
+ Finished single run #16 of 1680 
+=========================================
+
+2020-03-01 21:34:09,618 pypet INFO     
+=========================================
+ Starting single run #17 of 1680 
+=========================================
+
+2020-03-01 21:34:09,932 pypet INFO     
+=========================================
+ Finished single run #17 of 1680 
+=========================================
+
+2020-03-01 21:34:09,933 pypet INFO     
+=========================================
+ Starting single run #18 of 1680 
+=========================================
+
+2020-03-01 21:34:10,267 pypet INFO     
+=========================================
+ Finished single run #18 of 1680 
+=========================================
+
+2020-03-01 21:34:10,268 pypet INFO     
+=========================================
+ Starting single run #19 of 1680 
+=========================================
+
+2020-03-01 21:34:10,591 pypet INFO     
+=========================================
+ Finished single run #19 of 1680 
+=========================================
+
+2020-03-01 21:34:10,593 pypet INFO     
+=========================================
+ Starting single run #20 of 1680 
+=========================================
+
+2020-03-01 21:34:10,960 pypet INFO     
+=========================================
+ Finished single run #20 of 1680 
+=========================================
+
+2020-03-01 21:34:10,961 pypet INFO     
+=========================================
+ Starting single run #21 of 1680 
+=========================================
+
+2020-03-01 21:34:11,403 pypet INFO     
+=========================================
+ Finished single run #21 of 1680 
+=========================================
+
+2020-03-01 21:34:11,404 pypet INFO     
+=========================================
+ Starting single run #22 of 1680 
+=========================================
+
+2020-03-01 21:34:11,812 pypet INFO     
+=========================================
+ Finished single run #22 of 1680 
+=========================================
+
+2020-03-01 21:34:11,813 pypet INFO     
+=========================================
+ Starting single run #23 of 1680 
+=========================================
+
+2020-03-01 21:34:12,236 pypet INFO     
+=========================================
+ Finished single run #23 of 1680 
+=========================================
+
+2020-03-01 21:34:12,237 pypet INFO     
+=========================================
+ Starting single run #24 of 1680 
+=========================================
+
+2020-03-01 21:34:12,601 pypet INFO     
+=========================================
+ Finished single run #24 of 1680 
+=========================================
+
+2020-03-01 21:34:12,602 pypet INFO     
+=========================================
+ Starting single run #25 of 1680 
+=========================================
+
+2020-03-01 21:34:12,966 pypet INFO     
+=========================================
+ Finished single run #25 of 1680 
+=========================================
+
+2020-03-01 21:34:12,967 pypet INFO     
+=========================================
+ Starting single run #26 of 1680 
+=========================================
+
+2020-03-01 21:34:13,186 pypet ERROR    ERROR occurred during a single run! 
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 259, in _sigint_handling_single_run
+    return _single_run(kwargs)
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 314, in _single_run
+    result = runfunc(traj, *runargs, **kwrunparams)
+  File "<ipython-input-30-cea1b9a39cea>", line 81, in exploreVal
+    z = validateMod(4096, lgMult, lgAdd, traj.smMult, traj.smAdd, traj.mu, traj.sigma)
+  File "<ipython-input-30-cea1b9a39cea>", line 76, in validateMod
+    plt.show()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/pyplot.py", line 269, in show
+    return _show(*args, **kw)
+  File "/usr/local/lib/python3.7/site-packages/ipykernel/pylab/backend_inline.py", line 43, in show
+    metadata=_fetch_figure_metadata(figure_manager.canvas.figure)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/display.py", line 313, in display
+    format_dict, md_dict = format(obj, include=include, exclude=exclude)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 180, in format
+    data = formatter(obj)
+  File "</usr/local/lib/python3.7/site-packages/decorator.py:decorator-gen-9>", line 2, in __call__
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 224, in catch_format_error
+    r = method(self, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 341, in __call__
+    return printer(obj)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/pylabtools.py", line 248, in <lambda>
+    png_formatter.for_type(Figure, lambda fig: print_figure(fig, 'png', **kwargs))
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/pylabtools.py", line 132, in print_figure
+    fig.canvas.print_figure(bytes_io, **kw)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backend_bases.py", line 2069, in print_figure
+    bbox_extra_artists=bbox_artists)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/figure.py", line 2367, in get_tightbbox
+    bbox = a.get_tightbbox(renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 1162, in get_tightbbox
+    ticks_to_draw = self._update_ticks()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 1087, in _update_ticks
+    minor_locs = self.get_minorticklocs()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 1329, in get_minorticklocs
+    major_locs = self.major.locator()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/ticker.py", line 2081, in __call__
+    return self.tick_values(vmin, vmax)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/ticker.py", line 2089, in tick_values
+    locs = self._raw_ticks(vmin, vmax)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/ticker.py", line 2028, in _raw_ticks
+    nbins = np.clip(self.axis.get_tick_space(),
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 2491, in get_tick_space
+    tick = self._get_tick(True)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 2223, in _get_tick
+    return YTick(self.axes, 0, '', major=major, **tick_kw)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 161, in __init__
+    self.label1 = self._get_text1()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 546, in _get_text1
+    trans, vert, horiz = self._get_text1_transform()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 523, in _get_text1_transform
+    return self.axes.get_yaxis_text1_transform(self._pad)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axes/_base.py", line 783, in get_yaxis_text1_transform
+    self.figure.dpi_scale_trans),
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/transforms.py", line 1242, in __add__
+    return composite_transform_factory(self, other)
+KeyboardInterrupt

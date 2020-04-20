@@ -1,0 +1,62 @@
+2020-03-01 21:34:20,471 pypet ERROR    ERROR occurred during a single run! 
+Traceback (most recent call last):
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 259, in _sigint_handling_single_run
+    return _single_run(kwargs)
+  File "/usr/local/lib/python3.7/site-packages/pypet/environment.py", line 314, in _single_run
+    result = runfunc(traj, *runargs, **kwrunparams)
+  File "<ipython-input-31-5f796427da9e>", line 81, in exploreVal
+    z = validateMod(4096, lgMult, lgAdd, traj.smMult, traj.smAdd, traj.mu, traj.sigma)
+  File "<ipython-input-31-5f796427da9e>", line 76, in validateMod
+    plt.show()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/pyplot.py", line 269, in show
+    return _show(*args, **kw)
+  File "/usr/local/lib/python3.7/site-packages/ipykernel/pylab/backend_inline.py", line 43, in show
+    metadata=_fetch_figure_metadata(figure_manager.canvas.figure)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/display.py", line 313, in display
+    format_dict, md_dict = format(obj, include=include, exclude=exclude)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 180, in format
+    data = formatter(obj)
+  File "</usr/local/lib/python3.7/site-packages/decorator.py:decorator-gen-9>", line 2, in __call__
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 224, in catch_format_error
+    r = method(self, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/formatters.py", line 341, in __call__
+    return printer(obj)
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/pylabtools.py", line 248, in <lambda>
+    png_formatter.for_type(Figure, lambda fig: print_figure(fig, 'png', **kwargs))
+  File "/usr/local/lib/python3.7/site-packages/IPython/core/pylabtools.py", line 132, in print_figure
+    fig.canvas.print_figure(bytes_io, **kw)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backend_bases.py", line 2065, in print_figure
+    **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backends/backend_agg.py", line 527, in print_png
+    FigureCanvasAgg.draw(self)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backends/backend_agg.py", line 388, in draw
+    self.figure.draw(self.renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/artist.py", line 38, in draw_wrapper
+    return draw(artist, renderer, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/figure.py", line 1709, in draw
+    renderer, self, artists, self.suppressComposite)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/image.py", line 135, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/artist.py", line 38, in draw_wrapper
+    return draw(artist, renderer, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axes/_base.py", line 2647, in draw
+    mimage._draw_list_compositing_images(renderer, self, artists)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/image.py", line 135, in _draw_list_compositing_images
+    a.draw(renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/artist.py", line 38, in draw_wrapper
+    return draw(artist, renderer, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 1208, in draw
+    tick.draw(renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/artist.py", line 38, in draw_wrapper
+    return draw(artist, renderer, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/axis.py", line 297, in draw
+    artist.draw(renderer)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/artist.py", line 38, in draw_wrapper
+    return draw(artist, renderer, *args, **kwargs)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/text.py", line 718, in draw
+    ismath=ismath, mtext=mtext)
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backends/backend_agg.py", line 170, in draw_text
+    flags = get_hinting_flag()
+  File "/usr/local/lib/python3.7/site-packages/matplotlib/backends/backend_agg.py", line 51, in get_hinting_flag
+    True: LOAD_FORCE_AUTOHINT,
+KeyboardInterrupt
