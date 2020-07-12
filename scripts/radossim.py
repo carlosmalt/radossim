@@ -4,22 +4,50 @@
 import simpy
 import random
 import math
+from scipy.stats import nct
+import functools
+import math
+
+L0_COMPACTION_OCCURRENCE_FREQUENCY = 125_000
+L0_COMPACTION_DURATION = 0.174 * 1_000_000  # micro seconds
+OTHER_COMPACTION_OCCURRENCE_FREQUENCY = L0_COMPACTION_OCCURRENCE_FREQUENCY * 4
+L1_COMPACTION_DURATION = 0.171 * 1_000_000  # micro seconds
+L2_COMPACTION_DURATION = 0.137 * 1_000_000  # micro seconds
 
 # Predict request process time in micro seconds (roughly based on spinning media model
 # kaldewey:rtas08, Fig 2)
 def latModel(
-    reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=6.0, sigma=2.0
+    reqSize, bytesWritten, df=4.6172529727561, nc=1.3599328106387603, loc=0.000778353827576716, scale=0.00010981169306936738
+        # lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=6.0, sigma=2.0
 ):
+    if reqSize == 0:
+        return 0
+    blocksWritten = bytesWritten / 4096.0
     # Request size-dependent component
     runLen = reqSize / 4096.0
-    if runLen > 16:
-        iops = lgMult * math.log(runLen) + lgAdd
-    else:
-        iops = smMult * runLen + smAdd
-    sizeLat = int((1000000 / iops) * runLen)
-    # Latency component due to compaction (see skourtis:inflow13, Fig 4)
-    compactLat = random.lognormvariate(mu, sigma)
+    compactLat = 0
+    if blocksWritten // L0_COMPACTION_OCCURRENCE_FREQUENCY != (blocksWritten + runLen) // L0_COMPACTION_OCCURRENCE_FREQUENCY:
+        # L0 Compaction
+        compactLat += L0_COMPACTION_DURATION
+        print('L0 Compaction')
+
+    if blocksWritten // OTHER_COMPACTION_OCCURRENCE_FREQUENCY != (blocksWritten + runLen) // OTHER_COMPACTION_OCCURRENCE_FREQUENCY:
+        # Other levels Compaction
+        compactLat += L1_COMPACTION_DURATION
+        compactLat += L2_COMPACTION_DURATION
+        print('Lx Compaction')
+
+    # if runLen > 16:
+    #     iops = lgMult * math.log(runLen) + lgAdd
+    # else:
+    #     iops = smMult * runLen + smAdd
+    # sizeLat = int((1000000 / iops) * runLen)
     # print(sizeLat, compactLat)
+
+    # not affected write latency distribution
+    latencies = nct.rvs(df, nc, loc=loc, scale=scale, size=math.ceil(runLen))
+    latencies = list(map(lambda a: abs(a * 1_000_000), latencies))  # to micro seconds
+    sizeLat = functools.reduce(lambda a, b: a+b, latencies)
     return sizeLat + compactLat
 
 
@@ -80,7 +108,7 @@ def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
                 batchReqSize += reqSize
         # Process batch
         kvQDispatch = env.now
-        yield env.timeout(latModel(batchReqSize))
+        yield env.timeout(latModel(batchReqSize, bm.bytesWritten))
         kvCommit = env.now
         # Diagnose and manage batching
         bm.manageBatch(batch, batchReqSize, kvQDispatch, kvCommit)
@@ -107,6 +135,8 @@ class BatchManagement:
         self.batchSizeInit = 100
         self.batchDownSize = lambda x: int(x / 2)
         self.batchUpSize = lambda x: int(x + 10)
+        # written data state
+        self.bytesWritten = 0
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
@@ -114,6 +144,7 @@ class BatchManagement:
             # Account latencies
             osdQLat = arrivalKV - arrivalOSD
             kvQLat = dispatchTime - arrivalKV
+            self.bytesWritten += reqSize
             self.count += 1
             self.lat += osdQLat + kvQLat
             if priority in self.latMap:
