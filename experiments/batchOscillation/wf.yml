@@ -1,10 +1,10 @@
 steps:
   - id: install-python-modules
-    uses: "popperized/python-actions@master"
+    uses: "ivotron/python-actions@master"
     args:
       - "pip install -r /workspace/scripts/requirements.txt"
 
   - id: run-simulator
-    uses: "popperized/python-actions@master"
+    uses: "ivotron/python-actions@master"
     args:
       - "python /workspace/scripts/radossim.py"
