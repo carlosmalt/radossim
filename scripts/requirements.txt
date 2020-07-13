@@ -2,3 +2,4 @@ simpy
 papermill
 ipykernel
 matplotlib
+scipy

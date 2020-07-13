@@ -3,7 +3,6 @@
 
 import simpy
 import random
-import math
 from scipy.stats import nct
 import functools
 import math
