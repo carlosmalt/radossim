@@ -6,34 +6,29 @@ import random
 from scipy.stats import nct
 import functools
 import math
-
-L0_COMPACTION_OCCURRENCE_FREQUENCY = 125_000
-L0_COMPACTION_DURATION = 0.174 * 1_000_000  # micro seconds
-OTHER_COMPACTION_OCCURRENCE_FREQUENCY = L0_COMPACTION_OCCURRENCE_FREQUENCY * 4
-L1_COMPACTION_DURATION = 0.171 * 1_000_000  # micro seconds
-L2_COMPACTION_DURATION = 0.137 * 1_000_000  # micro seconds
+import yaml
 
 # Predict request process time in micro seconds (roughly based on spinning media model
 # kaldewey:rtas08, Fig 2)
 def latModel(
-    reqSize, bytesWritten, df=4.6172529727561, nc=1.3599328106387603, loc=0.000778353827576716, scale=0.00010981169306936738
+    reqSize, bytesWritten,  latency_model
         # lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=6.0, sigma=2.0
 ):
     if reqSize == 0:
         return 0
-    blocksWritten = bytesWritten / 4096.0
+    blocksWritten = bytesWritten / float(latency_model.block_size)
     # Request size-dependent component
-    runLen = reqSize / 4096.0
+    runLen = reqSize / float(latency_model.block_size)
     compactLat = 0
-    if blocksWritten // L0_COMPACTION_OCCURRENCE_FREQUENCY != (blocksWritten + runLen) // L0_COMPACTION_OCCURRENCE_FREQUENCY:
+    if blocksWritten // latency_model.compaction.l0.frequency != (blocksWritten + runLen) // latency_model.compaction.l0.frequency:
         # L0 Compaction
-        compactLat += L0_COMPACTION_DURATION
+        compactLat += latency_model.compaction.l0.duration
         print('L0 Compaction')
 
-    if blocksWritten // OTHER_COMPACTION_OCCURRENCE_FREQUENCY != (blocksWritten + runLen) // OTHER_COMPACTION_OCCURRENCE_FREQUENCY:
+    if blocksWritten // latency_model.compaction.l1.frequency != (blocksWritten + runLen) // latency_model.compaction.l1.frequency:
         # Other levels Compaction
-        compactLat += L1_COMPACTION_DURATION
-        compactLat += L2_COMPACTION_DURATION
+        compactLat += latency_model.compaction.l1.duration
+        compactLat += latency_model.compaction.other_levels.duration
         print('Lx Compaction')
 
     # if runLen > 16:
@@ -44,7 +39,7 @@ def latModel(
     # print(sizeLat, compactLat)
 
     # not affected write latency distribution
-    latencies = nct.rvs(df, nc, loc=loc, scale=scale, size=math.ceil(runLen))
+    latencies = nct.rvs(latency_model.write_distribution.df, latency_model.write_distribution.nc, loc=latency_model.write_distribution.loc, scale=latency_model.write_distribution.scale, size=math.ceil(runLen))
     latencies = list(map(lambda a: abs(a * 1_000_000), latencies))  # to micro seconds
     sizeLat = functools.reduce(lambda a, b: a+b, latencies)
     return sizeLat + compactLat
@@ -61,6 +56,13 @@ def osdClient(env, priority, meanInterArrivalTime, meanReqSize, dstQ):
         with dstQ.put(request) as put:
             yield put
 
+def osdClientBench(env, priority, dstQ, latency_model):
+    while True:
+        # Assemble request and timestamp
+        request = (priority, latency_model.block_size, env.now)
+        # Submit request
+        with dstQ.put(request) as put:
+            yield put
 
 # Move requests to BlueStore
 def osdThread(env, srcQ, dstQ):
@@ -76,7 +78,7 @@ def osdThread(env, srcQ, dstQ):
 
 
 # Batch incoming requests and process
-def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
+def kvThread(env, srcQ, latency_model, targetLat=5000, measInterval=100000):
     bm = BatchManagement(srcQ, targetLat, measInterval)
     while True:
         # Create batch
@@ -107,7 +109,7 @@ def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
                 batchReqSize += reqSize
         # Process batch
         kvQDispatch = env.now
-        yield env.timeout(latModel(batchReqSize, bm.bytesWritten))
+        yield env.timeout(latModel(batchReqSize, bm.bytesWritten, latency_model))
         kvCommit = env.now
         # Diagnose and manage batching
         bm.manageBatch(batch, batchReqSize, kvQDispatch, kvCommit)
@@ -200,28 +202,44 @@ class BatchManagement:
             print("total", self.lat / self.count / 1000000)
 
 
+class LatencyModel(object):
+    def __init__(self, model_dict):
+        for key in model_dict:
+            if isinstance(model_dict[key],dict):
+                model_dict[key] = LatencyModel(model_dict[key])
+        self.__dict__.update(model_dict)
+
+
+def load_latency_model(path='latency_model.yaml'):
+    with open(path) as model_file:
+        model_dict = yaml.load(model_file, Loader=yaml.FullLoader)
+        return LatencyModel(model_dict)
+
+
 if __name__ == "__main__":
 
     env = simpy.Environment()
 
     # Constants
-    meanInterArrivalTime = 28500  # micro seconds
-    meanReqSize = 4096  # bytes
+    # meanInterArrivalTime = 28500  # micro seconds
+    # meanReqSize = 4096  # bytes
     # meanInterArrivalTime = 4200 # micro seconds
     # meanReqSize = 16 * 4096 # bytes
-
+    latency_model = load_latency_model()
     # OSD queue(s)
     # Add capacity parameter for max queue lengths
-    osdQ1 = simpy.PriorityStore(env)
-    osdQ2 = simpy.PriorityStore(env)
+    osdQ1 = simpy.PriorityStore(env, capacity=latency_model.qdepth)
+    osdQ2 = simpy.PriorityStore(env, capacity=latency_model.qdepth)
     # osdQ = simpy.Store(env) # infinite capacity
 
     # KV queue (capacity translates into initial batch size)
     kvQ = simpy.Store(env, 1)
 
     # OSD client(s), each with a particular priority pushing request into a particular queue
-    env.process(osdClient(env, 1, meanInterArrivalTime * 2, meanReqSize, osdQ1))
-    env.process(osdClient(env, 2, meanInterArrivalTime * 2, meanReqSize, osdQ1))
+    # env.process(osdClient(env, 1, meanInterArrivalTime * 2, meanReqSize, osdQ1))
+    # env.process(osdClient(env, 2, meanInterArrivalTime * 2, meanReqSize, osdQ1))
+    env.process(osdClientBench(env, 1, osdQ1, latency_model))
+    env.process(osdClientBench(env, 2, osdQ1, latency_model))
 
     # OSD thread(s) (one per OSD queue)
     # env.process(osdThread(env, osdQ, kvQ))
@@ -229,7 +247,7 @@ if __name__ == "__main__":
     env.process(osdThread(env, osdQ2, kvQ))
 
     # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
-    env.process(kvThread(env, kvQ, 80000, 1600000))
+    env.process(kvThread(env, kvQ, latency_model, 80000, 1600000))
 
     # Run simulation
     env.run(120 * 60 * 1000000)
