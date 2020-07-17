@@ -1,10 +1,17 @@
 steps:
-  - id: install-python-modules
-    uses: "ivotron/python-actions@master"
-    args:
-      - "pip install -r /workspace/scripts/requirements.txt"
+- id: install-requirements
+  uses: docker://python:3.8-slim-buster
+  runs: [bash, -uec]
+  args:
+  - |
+    python -mvenv venv/
+    source venv/bin/activate
+    pip install -r scripts/requirements.txt
 
-  - id: run-simulator
-    uses: "ivotron/python-actions@master"
-    args:
-      - "python /workspace/scripts/radossim.py"
+- id: run-sim
+  uses: docker://python:3.8-slim-buster
+  runs: [bash, -uec]
+  args:
+  - |
+    source venv/bin/activate
+    python scripts/radossim.py
