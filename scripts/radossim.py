@@ -6,48 +6,12 @@ import random
 from scipy.stats import nct
 import functools
 import math
-from .latency_model import LatencyModel4K
-from .workload import OsdClientBench4K, RandomOSDClient
-
-# Predict request process time in micro seconds (roughly based on spinning media model
-# kaldewey:rtas08, Fig 2)
-def latModel(
-    reqSize, bytesWritten,  latency_model
-        # lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=6.0, sigma=2.0
-):
-    if reqSize == 0:
-        return 0
-    blocksWritten = bytesWritten / float(latency_model.block_size)
-    # Request size-dependent component
-    runLen = reqSize / float(latency_model.block_size)
-    compactLat = 0
-    if blocksWritten // latency_model.compaction.l0.frequency != (blocksWritten + runLen) // latency_model.compaction.l0.frequency:
-        # L0 Compaction
-        compactLat += latency_model.compaction.l0.duration
-        print('L0 Compaction')
-
-    if blocksWritten // latency_model.compaction.l1.frequency != (blocksWritten + runLen) // latency_model.compaction.l1.frequency:
-        # Other levels Compaction
-        compactLat += latency_model.compaction.l1.duration
-        compactLat += latency_model.compaction.other_levels.duration
-        print('Lx Compaction')
-
-    # if runLen > 16:
-    #     iops = lgMult * math.log(runLen) + lgAdd
-    # else:
-    #     iops = smMult * runLen + smAdd
-    # sizeLat = int((1000000 / iops) * runLen)
-    # print(sizeLat, compactLat)
-
-    # not affected write latency distribution
-    latencies = nct.rvs(latency_model.write_distribution.df, latency_model.write_distribution.nc, loc=latency_model.write_distribution.loc, scale=latency_model.write_distribution.scale, size=math.ceil(runLen))
-    latencies = list(map(lambda a: abs(a * 1_000_000), latencies))  # to micro seconds
-    sizeLat = functools.reduce(lambda a, b: a+b, latencies)
-    return sizeLat + compactLat
+from latency_model import LatencyModel4K
+from workload import OsdClientBench4K, RandomOSDClient
 
 
 # Create requests with a fixed priority and certain inter-arrival and size distributions
-def osdClient(env, workloadGenerator):
+def osdClient(env, workloadGenerator, dstQ):
     while True:
         # Wait until arrival time
         timeout = workloadGenerator.calculateTimeout()
@@ -56,7 +20,8 @@ def osdClient(env, workloadGenerator):
         # Assemble request and timestamp
         request = workloadGenerator.createRequest(env)
         # Submit request
-        workloadGenerator.submitRequest(request)
+        with dstQ.put(request) as put:
+            yield put
 
 # Move requests to BlueStore
 def osdThread(env, srcQ, dstQ):
@@ -232,12 +197,12 @@ if __name__ == "__main__":
     # osdClientPriorityOne = RandomOSDClient(meanInterArrivalTime * 2, meanReqSize, 1, osdQ1)
     # osdClientPriorityTwo = RandomOSDClient(meanInterArrivalTime * 2, meanReqSize, 2, osdQ1)
 
-    # 4k osd client
-    osdClientPriorityOne = OsdClientBench4K(4096.0, 1, osdQ1)
-    osdClientPriorityTwo = OsdClientBench4K(4096.0, 2, osdQ1)
+    # 4k osd client workload generator
+    osdClientPriorityOne = OsdClientBench4K(4096.0, 1)
+    osdClientPriorityTwo = OsdClientBench4K(4096.0, 2)
 
-    env.process(osdClient(env, osdClientPriorityOne))
-    env.process(osdClient(env, osdClientPriorityTwo))
+    env.process(osdClient(env, osdClientPriorityOne, osdQ1))
+    env.process(osdClient(env, osdClientPriorityTwo, osdQ1))
 
     # OSD thread(s) (one per OSD queue)
     # env.process(osdThread(env, osdQ, kvQ))
@@ -248,4 +213,4 @@ if __name__ == "__main__":
     env.process(kvThread(env, kvQ, latencyModel, 80000, 1600000))
 
     # Run simulation
-    env.run(120 * 60 * 1000000)
+    env.run(5 * 60 * 1000000)

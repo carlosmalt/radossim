@@ -6,11 +6,11 @@ import functools
 
 
 class LatencyModelConfig(object):
-    def __init__(self, model_dict):
-        for key in model_dict:
-            if isinstance(model_dict[key],dict):
-                model_dict[key] = LatencyModel(model_dict[key])
-        self.__dict__.update(model_dict)
+    def __init__(self, modelDict):
+        for key in modelDict:
+            if isinstance(modelDict[key], dict):
+                modelDict[key] = LatencyModelConfig(modelDict[key])
+        self.__dict__.update(modelDict)
 
 
 class LatencyModel(ABC):
@@ -62,12 +62,12 @@ class LatencyModel4K(LatencyModel):
         if writesApplied // self.latencyModelConfig.compaction.otherLevels.frequency != (
                 writesApplied + runLen) // self.latencyModelConfig.compaction.otherLevels.frequency:
             # Other levels Compaction
-            compactLat += self.latencyModelConfig.compaction.other_levels.duration
+            compactLat += self.latencyModelConfig.compaction.otherLevels.duration
             print('L > 1 Compaction')
 
         # not affected write latency distribution
-        latencies = nct.rvs(self.latencyModelConfig.write_distribution.df, self.latencyModelConfig.write_distribution.nc,
-                            loc=self.latencyModelConfig.write_distribution.loc, scale=self.latencyModelConfig.write_distribution.scale,
+        latencies = nct.rvs(self.latencyModelConfig.writeDistribution.df, self.latencyModelConfig.writeDistribution.nc,
+                            loc=self.latencyModelConfig.writeDistribution.loc, scale=self.latencyModelConfig.writeDistribution.scale,
                             size=math.ceil(runLen))
         latencies = list(map(lambda a: abs(a * 1_000_000), latencies))  # to micro seconds
         pureWriteLatency = functools.reduce(lambda a, b: a + b, latencies)
