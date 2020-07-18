@@ -1,8 +1,7 @@
 ---
 # Latency Model
-qdepth: 48
-block_size: 4096
-write_distribution:
+writeSize: 4096
+writeDistribution:
   df: 4.6172529727561
   nc: 1.3599328106387603
   loc: 0.000778353827576716
@@ -14,6 +13,6 @@ compaction:
     l1:
       duration: 171000  # micro seconds
       frequency: 500000
-    other_levels:
+    otherLevels:
       duration: 137000  # micro seconds
       frequency: 500000
