@@ -14,4 +14,4 @@ steps:
   args:
   - |
     source venv/bin/activate
-    python scripts/radossim.py
+    python scripts/radossim.py experiments/latModel/latency_model.yaml

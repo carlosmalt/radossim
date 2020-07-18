@@ -210,13 +210,23 @@ class LatencyModel(object):
         self.__dict__.update(model_dict)
 
 
-def load_latency_model(path='latency_model.yaml'):
+def load_latency_model(path):
     with open(path) as model_file:
         model_dict = yaml.load(model_file, Loader=yaml.FullLoader)
         return LatencyModel(model_dict)
 
 
 if __name__ == "__main__":
+
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Simulate Ceph/RADOS.')
+    parser.add_argument('model',
+        metavar='filepath',
+        default='latency_model.yaml',
+        help='filepath of latency model (default "latency_model.yaml")'
+        )
+    args = parser.parse_args()
 
     env = simpy.Environment()
 
@@ -225,7 +235,7 @@ if __name__ == "__main__":
     # meanReqSize = 4096  # bytes
     # meanInterArrivalTime = 4200 # micro seconds
     # meanReqSize = 16 * 4096 # bytes
-    latency_model = load_latency_model()
+    latency_model = load_latency_model(args.model)
     # OSD queue(s)
     # Add capacity parameter for max queue lengths
     osdQ1 = simpy.PriorityStore(env, capacity=latency_model.qdepth)
