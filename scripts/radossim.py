@@ -3,37 +3,25 @@
 
 import simpy
 import random
+from scipy.stats import nct
+import functools
 import math
-
-# Predict request process time in micro seconds (roughly based on spinning media model
-# kaldewey:rtas08, Fig 2)
-def latModel(
-    reqSize, lgMult=820.28, lgAdd=-1114.3, smMult=62.36, smAdd=8.33, mu=6.0, sigma=2.0
-):
-    # Request size-dependent component
-    runLen = reqSize / 4096.0
-    if runLen > 16:
-        iops = lgMult * math.log(runLen) + lgAdd
-    else:
-        iops = smMult * runLen + smAdd
-    sizeLat = int((1000000 / iops) * runLen)
-    # Latency component due to compaction (see skourtis:inflow13, Fig 4)
-    compactLat = random.lognormvariate(mu, sigma)
-    # print(sizeLat, compactLat)
-    return sizeLat + compactLat
+from latency_model import LatencyModel4K
+from workload import OsdClientBench4K, RandomOSDClient
 
 
 # Create requests with a fixed priority and certain inter-arrival and size distributions
-def osdClient(env, priority, meanInterArrivalTime, meanReqSize, dstQ):
+def osdClient(env, workloadGenerator, dstQ):
     while True:
         # Wait until arrival time
-        yield env.timeout(random.expovariate(1.0 / meanInterArrivalTime))
+        timeout = workloadGenerator.calculateTimeout()
+        if timeout > 0:
+            yield env.timeout(timeout)
         # Assemble request and timestamp
-        request = (priority, random.expovariate(1.0 / meanReqSize), env.now)
+        request = workloadGenerator.createRequest(env)
         # Submit request
         with dstQ.put(request) as put:
             yield put
-
 
 # Move requests to BlueStore
 def osdThread(env, srcQ, dstQ):
@@ -49,7 +37,7 @@ def osdThread(env, srcQ, dstQ):
 
 
 # Batch incoming requests and process
-def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
+def kvThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000):
     bm = BatchManagement(srcQ, targetLat, measInterval)
     while True:
         # Create batch
@@ -80,7 +68,7 @@ def kvThread(env, srcQ, targetLat=5000, measInterval=100000):
                 batchReqSize += reqSize
         # Process batch
         kvQDispatch = env.now
-        yield env.timeout(latModel(batchReqSize))
+        yield env.timeout(latencyModel.applyWrite(batchReqSize))
         kvCommit = env.now
         # Diagnose and manage batching
         bm.manageBatch(batch, batchReqSize, kvQDispatch, kvCommit)
@@ -107,6 +95,8 @@ class BatchManagement:
         self.batchSizeInit = 100
         self.batchDownSize = lambda x: int(x / 2)
         self.batchUpSize = lambda x: int(x + 10)
+        # written data state
+        self.bytesWritten = 0
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
@@ -114,6 +104,7 @@ class BatchManagement:
             # Account latencies
             osdQLat = arrivalKV - arrivalOSD
             kvQLat = dispatchTime - arrivalKV
+            self.bytesWritten += reqSize
             self.count += 1
             self.lat += osdQLat + kvQLat
             if priority in self.latMap:
@@ -172,26 +163,46 @@ class BatchManagement:
 
 if __name__ == "__main__":
 
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Simulate Ceph/RADOS.')
+    parser.add_argument('model',
+        metavar='filepath',
+        default='latency_model.yaml',
+        help='filepath of latency model (default "latency_model.yaml")'
+        )
+    args = parser.parse_args()
+
     env = simpy.Environment()
 
     # Constants
-    meanInterArrivalTime = 28500  # micro seconds
-    meanReqSize = 4096  # bytes
+    # meanInterArrivalTime = 28500  # micro seconds
+    # meanReqSize = 4096  # bytes
     # meanInterArrivalTime = 4200 # micro seconds
     # meanReqSize = 16 * 4096 # bytes
-
+    latencyModel = LatencyModel4K(args.model)
     # OSD queue(s)
     # Add capacity parameter for max queue lengths
-    osdQ1 = simpy.PriorityStore(env)
-    osdQ2 = simpy.PriorityStore(env)
+    queueDepth = 48
+    osdQ1 = simpy.PriorityStore(env, capacity=queueDepth)
+    osdQ2 = simpy.PriorityStore(env, capacity=queueDepth)
     # osdQ = simpy.Store(env) # infinite capacity
 
     # KV queue (capacity translates into initial batch size)
     kvQ = simpy.Store(env, 1)
 
     # OSD client(s), each with a particular priority pushing request into a particular queue
-    env.process(osdClient(env, 1, meanInterArrivalTime * 2, meanReqSize, osdQ1))
-    env.process(osdClient(env, 2, meanInterArrivalTime * 2, meanReqSize, osdQ1))
+
+    # random size and speed osd client
+    # osdClientPriorityOne = RandomOSDClient(meanInterArrivalTime * 2, meanReqSize, 1, osdQ1)
+    # osdClientPriorityTwo = RandomOSDClient(meanInterArrivalTime * 2, meanReqSize, 2, osdQ1)
+
+    # 4k osd client workload generator
+    osdClientPriorityOne = OsdClientBench4K(4096.0, 1)
+    osdClientPriorityTwo = OsdClientBench4K(4096.0, 2)
+
+    env.process(osdClient(env, osdClientPriorityOne, osdQ1))
+    env.process(osdClient(env, osdClientPriorityTwo, osdQ1))
 
     # OSD thread(s) (one per OSD queue)
     # env.process(osdThread(env, osdQ, kvQ))
@@ -199,7 +210,7 @@ if __name__ == "__main__":
     env.process(osdThread(env, osdQ2, kvQ))
 
     # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
-    env.process(kvThread(env, kvQ, 80000, 1600000))
+    env.process(kvThread(env, kvQ, latencyModel, 80000, 1600000))
 
     # Run simulation
-    env.run(120 * 60 * 1000000)
+    env.run(5 * 60 * 1000000)
