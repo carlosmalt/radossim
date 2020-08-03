@@ -27,9 +27,11 @@ class Optimizer:
         print(f'Error for ({throughput}, {osdQueueLen}): {osdQLenError + throughputError}')
         return osdQLenError + throughputError
 
-    def optimize(self, targetLatStartPoint, intervalBoundsStartPoint, targetLatBounds=(500, 5000), intervalBounds=(1000, 100000)):
-        throughput, _ = radossim.runSimulation(self.model, targetLat=targetLat, interval=100000,
+    def optimize(self, targetLatStartPoint, intervalBoundsStartPoint, targetLatBounds=(500, 5000), intervalBounds=(1000, 200000)):
+        throughput, _ = radossim.runSimulation(self.model, targetLat=targetLat, measInterval=interval,
                                                          time=self.time, useCoDel=False)
+        self.originalThroughput = throughput
+        print(f'Original Throughput: {self.originalThroughput} B/s')
         return scipy.optimize.minimize(self.runSimulationAndCalculateError, [targetLatStartPoint,
                                               intervalBoundsStartPoint],
                                       method=self.optimizationMethod,
@@ -47,7 +49,7 @@ if __name__ == "__main__":
                         )
     args = parser.parse_args()
     targetLat = 1000
-    interval = 100000
+    interval = 50000
     time = 5 * 60 * 1_000_000  # 5 mins
     optimizer = Optimizer('L-BFGS-B', args.model, time)
     res = optimizer.optimize(targetLat, interval)

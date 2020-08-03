@@ -27,92 +27,38 @@ def osdClient(env, workloadGenerator, dstQ):
 def osdThread(env, srcQ, dstQ):
     while True:
         # Wait until there is something in the srcQ
-        batch = []
         with srcQ.get() as get:
             req = yield get
+            # Timestamp transaction (after this time request cannot be prioritized)
             req = (req, env.now)
-            batch.append(req)
-        qDepth = 48
-        for i in range(min(qDepth - 1, len(srcQ.items))):
-            with srcQ.get() as get:
-                req = yield get
-                req = (req, env.now)
-                batch.append(req)
-        # Timestamp transaction (after this time request cannot be prioritized)
-        req = batch
-        # Submit BlueStore transaction
+
         with dstQ.put(req) as put:
             yield put
 
 
-# def aioThread(env, srcQ, dstQ, latencyModel):
-#     while True:
-#         batch = []
-#         with srcQ.get() as get:
-#             req = yield get
-#             batch.append(req)
-#         qDepth = 48
-#         for i in range(min(qDepth - 1, len(srcQ.items))):
-#             with srcQ.get() as get:
-#                 req = yield get
-#                 batch.append(req)
-#         print(len(batch))
-#         aioSubmit = env.now
-#         ((_, reqSize, _), _) = req
-#         yield env.timeout(latencyModel.submitAIO(reqSize))
-#         aioDone = env.now
-#         for req in batch:
-#             req = (req, aioSubmit, aioDone)
-#             with dstQ.put(req) as put:
-#                 yield put
-#
-#
-# def kvThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000, data=None):
-#     while True:
-#         # Create batch
-#         batch = []
-#         batchReqSize = 0
-#         # Wait for the first request
-#         with srcQ.get() as get:
-#             bsTxn = yield get
-#             batch.append(bsTxn)
-#             # Unpack transaction
-#             (((priority, reqSize, arrivalOSD), arrivalKV), aioSubmit, aioDone) = bsTxn
-#             batchReqSize += reqSize
-#         # Drain the kvQueue
-#         # print(len(srcQ.items))
-#         for i in range(len(srcQ.items)):
-#             with srcQ.get() as get:
-#                 bsTxn = yield get
-#                 batch.append(bsTxn)
-#                 # Unpack transaction
-#                 (((priority, reqSize, arrivalOSD), arrivalKV), aioSubmit, aioDone) = bsTxn
-#                 batchReqSize += reqSize
-#         # Process batch
-#         kvQDispatch = env.now
-#         if len(batch) > 48:
-#             print(f'batch: {len(batch)}')
-#         yield env.timeout(latencyModel.applyWrite(batchReqSize))
-#         kvCommit = env.now
-#         # print(kvCommit)
-#         if data is not None:
-#             for req in batch:
-#                 req = (req, kvQDispatch, kvCommit)
-#                 data.append(req)
-
-
 def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000, data=None, useCoDel=True):
     bm = BatchManagement(srcQ, targetLat, measInterval)
-    queue = []
     while True:
-        # Create batch
         batchReqSize = 0
         batch = []
         with srcQ.get() as get:
-            batch = yield get
-            for req in batch:
+            req = yield get
+            ((_, reqSize, _), _) = req
+            batchReqSize += reqSize
+            batch.append(req)
+        if useCoDel:
+            if bm.batchSize == float("inf"):
+                batchSize = len(srcQ.items)
+            else:
+                batchSize = int(min(bm.batchSize - 1, len(srcQ.items)))
+        else:
+            batchSize = int(min(1023, len(srcQ.items)))
+        for i in range(batchSize):
+            with srcQ.get() as get:
+                req = yield get
                 ((_, reqSize, _), _) = req
                 batchReqSize += reqSize
+                batch.append(req)
         aioSubmit = env.now
         yield env.timeout(latencyModel.submitAIO(batchReqSize))
         aioDone = env.now
@@ -123,8 +69,6 @@ def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000,
 
         # Process batch
         kvQDispatch = env.now
-        if len(kvBatch) > 48:
-            print(f'kv batch: {len(kvBatch)}')
         latency = latencyModel.applyWrite(batchReqSize)
         yield env.timeout(latency)
         kvCommit = env.now
@@ -133,6 +77,8 @@ def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000,
             for req in kvBatch:
                 req = (req, kvQDispatch, kvCommit)
                 data.append(req)
+        if useCoDel:
+            bm.manageBatch(kvBatch, batchReqSize, kvQDispatch, kvCommit)
 
 
 # Batch incoming requests and process
@@ -199,7 +145,7 @@ class BatchManagement:
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
-            ((priority, reqSize, arrivalOSD), arrivalKV) = txn
+            (((priority, reqSize, arrivalOSD), arrivalKV), aioSubmit, aioDone) = txn
             # Account latencies
             osdQLat = arrivalKV - arrivalOSD
             kvQLat = dispatchTime - arrivalKV
@@ -318,13 +264,14 @@ def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_00
     # osdQ2 = simpy.PriorityStore(env, capacity=queueDepth)
     # osdQ = simpy.Store(env) # infinite capacity
 
+    # KV queue (capacity translates into initial batch size)
+    aioQ = simpy.Store(env, 1024)
+
     # monitoring
     queuLenMonitor = QueueLenMonitor()
     monitor = partial(monitor, queuLenMonitor)
-    patchResource(osdQ1, postCallback=monitor)
+    patchResource(aioQ, postCallback=monitor)
 
-    # KV queue (capacity translates into initial batch size)
-    aioQ = simpy.Store(env, 1024)
     # kvQ = simpy.Store(env)
 
     # OSD client(s), each with a particular priority pushing request into a particular queue
@@ -353,7 +300,7 @@ def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_00
     if output:
         data = []
     # env.process(kvThread(env, kvQ, latencyModel, targetLat, measInterval, data))
-    env.process(kvAndAioThread(env, aioQ, latencyModel, targetLat, measInterval, data))
+    env.process(kvAndAioThread(env, aioQ, latencyModel, targetLat, measInterval, data, useCoDel))
 
     # if outputFile:
     #     env.process(outputResults(env, outputQ, outputFile))
@@ -384,12 +331,18 @@ if __name__ == "__main__":
                         default=None,
                         help='filepath of output for storing the results (default: No output)'
                         )
-
+    parser.add_argument('--useCoDel',
+                        action='store_true',
+                        help='Use CoDel algorithm for batch sizing?'
+                        )
     args = parser.parse_args()
     targetLat = 5000
     measInterval = 100000
     time = 5 * 60 * 1_000_000   # 5 mins
-    (avgThroughput, avgOsdQueueLen) = runSimulation(args.model, targetLat, measInterval, time, args.output)
+    if args.useCoDel:
+        print('Using CoDel algorithm ...')
+
+    avgThroughput, avgOsdQueueLen = runSimulation(args.model, targetLat, measInterval, time, args.output, args.useCoDel)
     avgThroughput = avgThroughput / 1024
     print(f'Throughput: {avgThroughput} KB/s')
     print(f'OSD Queue Len: {avgOsdQueueLen}')
