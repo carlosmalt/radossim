@@ -18,12 +18,13 @@ class Optimizer:
         return self.error(throughput, osdQueueLen)
 
     def error(self, throughput, osdQueueLen):
-        alpha = 1
-        power = 1
-        osdQLenError = alpha / pow(osdQueueLen, power)
-        throughputViolationPenalty = 1000   # big number
-        throughputChange = abs(self.originalThroughput - throughput) / self.originalThroughput
-        throughputError = throughputViolationPenalty * np.sign(math.floor(10 * throughputChange))
+        throughputViolationPenalty = 1_000_000   # big number
+        throughputChange = (self.originalThroughput - throughput) * 100 / self.originalThroughput
+        if throughputChange > 10:
+            return throughputViolationPenalty
+        alpha = 48
+        osdQLenError = alpha /osdQueueLen
+        throughputError = pow(2, throughputChange - 10)
         print(f'Error for ({throughput}, {osdQueueLen}): {osdQLenError + throughputError}')
         return osdQLenError + throughputError
 
