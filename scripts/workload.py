@@ -12,7 +12,7 @@ class WorkloadGenerator(ABC):
         return ()
 
 
-class OsdClientBench4K(WorkloadGenerator):
+class OsdClientBenchConstantSize(WorkloadGenerator):
     def __init__(self, requestSize, priority):
         self.requestSize = requestSize
         self.priority = priority
@@ -22,6 +22,11 @@ class OsdClientBench4K(WorkloadGenerator):
 
     def createRequest(self, env):
         return self.priority, self.requestSize, env.now
+
+
+class OsdClientBench4K(OsdClientBenchConstantSize):
+    def __init__(self, priority):
+        super().__init__(4096, priority)
 
 
 class RandomOSDClient(WorkloadGenerator):

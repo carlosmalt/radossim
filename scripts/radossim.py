@@ -2,13 +2,12 @@
 # bufferbloat
 
 import simpy
-import random
-from scipy.stats import nct
-import functools
+from functools import partial, wraps
 import math
-from latency_model import LatencyModel4K
-from workload import OsdClientBench4K, RandomOSDClient
-
+import argparse
+from latency_model import StatisticLatencyModel
+from workload import OsdClientBench4K, RandomOSDClient, OsdClientBenchConstantSize
+import pickle
 
 # Create requests with a fixed priority and certain inter-arrival and size distributions
 def osdClient(env, workloadGenerator, dstQ):
@@ -23,21 +22,121 @@ def osdClient(env, workloadGenerator, dstQ):
         with dstQ.put(request) as put:
             yield put
 
+
 # Move requests to BlueStore
 def osdThread(env, srcQ, dstQ):
     while True:
         # Wait until there is something in the srcQ
+        batch = []
         with srcQ.get() as get:
-            osdRequest = yield get
-            # Timestamp transaction (after this time request cannot be prioritized)
-            bsTxn = (osdRequest, env.now)
+            req = yield get
+            req = (req, env.now)
+            batch.append(req)
+        qDepth = 48
+        for i in range(min(qDepth - 1, len(srcQ.items))):
+            with srcQ.get() as get:
+                req = yield get
+                req = (req, env.now)
+                batch.append(req)
+        # Timestamp transaction (after this time request cannot be prioritized)
+        req = batch
         # Submit BlueStore transaction
-        with dstQ.put(bsTxn) as put:
+        with dstQ.put(req) as put:
             yield put
 
 
+# def aioThread(env, srcQ, dstQ, latencyModel):
+#     while True:
+#         batch = []
+#         with srcQ.get() as get:
+#             req = yield get
+#             batch.append(req)
+#         qDepth = 48
+#         for i in range(min(qDepth - 1, len(srcQ.items))):
+#             with srcQ.get() as get:
+#                 req = yield get
+#                 batch.append(req)
+#         print(len(batch))
+#         aioSubmit = env.now
+#         ((_, reqSize, _), _) = req
+#         yield env.timeout(latencyModel.submitAIO(reqSize))
+#         aioDone = env.now
+#         for req in batch:
+#             req = (req, aioSubmit, aioDone)
+#             with dstQ.put(req) as put:
+#                 yield put
+#
+#
+# def kvThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000, data=None):
+#     while True:
+#         # Create batch
+#         batch = []
+#         batchReqSize = 0
+#         # Wait for the first request
+#         with srcQ.get() as get:
+#             bsTxn = yield get
+#             batch.append(bsTxn)
+#             # Unpack transaction
+#             (((priority, reqSize, arrivalOSD), arrivalKV), aioSubmit, aioDone) = bsTxn
+#             batchReqSize += reqSize
+#         # Drain the kvQueue
+#         # print(len(srcQ.items))
+#         for i in range(len(srcQ.items)):
+#             with srcQ.get() as get:
+#                 bsTxn = yield get
+#                 batch.append(bsTxn)
+#                 # Unpack transaction
+#                 (((priority, reqSize, arrivalOSD), arrivalKV), aioSubmit, aioDone) = bsTxn
+#                 batchReqSize += reqSize
+#         # Process batch
+#         kvQDispatch = env.now
+#         if len(batch) > 48:
+#             print(f'batch: {len(batch)}')
+#         yield env.timeout(latencyModel.applyWrite(batchReqSize))
+#         kvCommit = env.now
+#         # print(kvCommit)
+#         if data is not None:
+#             for req in batch:
+#                 req = (req, kvQDispatch, kvCommit)
+#                 data.append(req)
+
+
+def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000, data=None):
+    while True:
+        # Create batch
+        batchReqSize = 0
+        batch = []
+        with srcQ.get() as get:
+            batch = yield get
+            for req in batch:
+                ((_, reqSize, _), _) = req
+                batchReqSize += reqSize
+        if len(batch) > 48:
+            print(f'aio batch: {len(batch)}')
+        aioSubmit = env.now
+        yield env.timeout(latencyModel.submitAIO(batchReqSize))
+        aioDone = env.now
+        kvBatch = []
+        for req in batch:
+            req = (req, aioSubmit, aioDone)
+            kvBatch.append(req)
+
+        # Process batch
+        kvQDispatch = env.now
+        if len(kvBatch) > 48:
+            print(f'kv batch: {len(kvBatch)}')
+        latency = latencyModel.applyWrite(batchReqSize)
+        yield env.timeout(latency)
+        kvCommit = env.now
+        # print(kvCommit)
+        if data is not None:
+            for req in kvBatch:
+                req = (req, kvQDispatch, kvCommit)
+                data.append(req)
+
+
 # Batch incoming requests and process
-def kvThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000):
+def kvThreadOld(env, srcQ, latencyModel, targetLat=5000, measInterval=100000):
     bm = BatchManagement(srcQ, targetLat, measInterval)
     while True:
         # Create batch
@@ -161,17 +260,48 @@ class BatchManagement:
             print("total", self.lat / self.count / 1000000)
 
 
-if __name__ == "__main__":
+def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_000_000, output=None):
+    def patchResource(resource, preCallback=None, postCallback=None):
+        """Patch *resource* so that it calls the callable *preCallback* before each
+        put/get/request/release operation and the callable *postCallback* after each
+        operation.  The only argument to these functions is the resource
+        instance.
+        """
 
-    import argparse
+        def getWrapper(func):
+            # Generate a wrapper for put/get/request/release
+            @wraps(func)
+            def wrapper(*args, **kwargs):
+                # This is the actual wrapper
+                # Call "pre" callback
+                if preCallback:
+                    preCallback(resource)
 
-    parser = argparse.ArgumentParser(description='Simulate Ceph/RADOS.')
-    parser.add_argument('model',
-        metavar='filepath',
-        default='latency_model.yaml',
-        help='filepath of latency model (default "latency_model.yaml")'
-        )
-    args = parser.parse_args()
+                # Perform actual operation
+                ret = func(*args, **kwargs)
+
+                # Call "post" callback
+                if postCallback:
+                    postCallback(resource)
+
+                return ret
+
+            return wrapper
+
+        # Replace the original operations with our wrapper
+        for name in ['put', 'get']:
+            if hasattr(resource, name):
+                setattr(resource, name, getWrapper(getattr(resource, name)))
+
+    def monitor(data, resource):
+        """Monitor queue len"""
+        data.sum += len(resource.items)
+        data.size += 1
+
+    class QueueLenMonitor:
+        def __init__(self):
+            self.sum = 0
+            self.size = 0
 
     env = simpy.Environment()
 
@@ -180,16 +310,22 @@ if __name__ == "__main__":
     # meanReqSize = 4096  # bytes
     # meanInterArrivalTime = 4200 # micro seconds
     # meanReqSize = 16 * 4096 # bytes
-    latencyModel = LatencyModel4K(args.model)
+    latencyModel = StatisticLatencyModel(model)
     # OSD queue(s)
     # Add capacity parameter for max queue lengths
     queueDepth = 48
     osdQ1 = simpy.PriorityStore(env, capacity=queueDepth)
-    osdQ2 = simpy.PriorityStore(env, capacity=queueDepth)
+    # osdQ2 = simpy.PriorityStore(env, capacity=queueDepth)
     # osdQ = simpy.Store(env) # infinite capacity
 
+    # monitoring
+    queuLenMonitor = QueueLenMonitor()
+    monitor = partial(monitor, queuLenMonitor)
+    patchResource(osdQ1, postCallback=monitor)
+
     # KV queue (capacity translates into initial batch size)
-    kvQ = simpy.Store(env, 1)
+    aioQ = simpy.Store(env, 1024)
+    # kvQ = simpy.Store(env)
 
     # OSD client(s), each with a particular priority pushing request into a particular queue
 
@@ -198,19 +334,62 @@ if __name__ == "__main__":
     # osdClientPriorityTwo = RandomOSDClient(meanInterArrivalTime * 2, meanReqSize, 2, osdQ1)
 
     # 4k osd client workload generator
-    osdClientPriorityOne = OsdClientBench4K(4096.0, 1)
-    osdClientPriorityTwo = OsdClientBench4K(4096.0, 2)
+    osdClientPriorityOne = OsdClientBench4K(1)
+    # osdClientPriorityTwo = OsdClientBench4K(2)
 
     env.process(osdClient(env, osdClientPriorityOne, osdQ1))
-    env.process(osdClient(env, osdClientPriorityTwo, osdQ1))
+    # env.process(osdClient(env, osdClientPriorityTwo, osdQ1))
 
     # OSD thread(s) (one per OSD queue)
     # env.process(osdThread(env, osdQ, kvQ))
-    env.process(osdThread(env, osdQ1, kvQ))
-    env.process(osdThread(env, osdQ2, kvQ))
+    env.process(osdThread(env, osdQ1, aioQ))
+    # env.process(osdThread(env, osdQ2, kvQ))
+
+    # AIO thread in BlueStore
+    # env.process(aioThread(env, aioQ, kvQ, latencyModel))
 
     # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
-    env.process(kvThread(env, kvQ, latencyModel, 80000, 1600000))
+    data = None
+    if output:
+        data = []
+    # env.process(kvThread(env, kvQ, latencyModel, targetLat, measInterval, data))
+    env.process(kvAndAioThread(env, aioQ, latencyModel, targetLat, measInterval, data))
+
+    # if outputFile:
+    #     env.process(outputResults(env, outputQ, outputFile))
 
     # Run simulation
-    env.run(5 * 60 * 1000000)
+    env.run(time)
+    if output:
+        with open(output, 'wb') as f:
+            pickle.dump(data, f)
+    duration = env.now / 1_000_000  # to sec
+    bytesWritten = latencyModel.bytesWritten
+    avgThrouput = bytesWritten / duration
+
+    return avgThrouput, queuLenMonitor.sum / queuLenMonitor.size
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Simulate Ceph/RADOS.')
+    parser.add_argument('--model',
+                        metavar='filepath',
+                        required=False,
+                        default='latency_model.yaml',
+                        help='filepath of latency model (default "latency_model_4K.yaml")'
+                        )
+    parser.add_argument('--output',
+                        metavar='output path',
+                        required=False,
+                        default=None,
+                        help='filepath of output for storing the results (default: No output)'
+                        )
+
+    args = parser.parse_args()
+    targetLat = 5000
+    measInterval = 100000
+    time = 5 * 60 * 1_000_000   # 5 mins
+    (avgBandwidth, avgOsdQueueLen) = runSimulation(args.model, targetLat, measInterval, time, args.output)
+    avgBandwidth = avgBandwidth / 1024
+    print(f'Bandwidth: {avgBandwidth} KB/s')
+    print(f'OSD Queue Len: {avgOsdQueueLen}')

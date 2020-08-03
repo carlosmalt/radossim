@@ -1,18 +1,25 @@
 ---
-# Latency Model
+# Latency Model for 4K writes only
 writeSize: 4096
-writeDistribution:
-  df: 4.6172529727561
-  nc: 1.3599328106387603
-  loc: 0.000778353827576716
-  scale: 0.00010981169306936738
+kvWriteDistribution:
+  distributionName: exponnorm
+  _params:
+    K: 1.5239202491769392
+    loc: 0.0006541228223387167
+    scale: 7.2800388773986e-05
+aioWriteDistribution:
+  distributionName: exponnorm
+  _params:
+    K: 15.46661222495814
+    loc: 5.30708007439697e-05
+    scale: 4.011139433255672e-06
 compaction:
-    l0:
-      duration: 174000  # micro seconds
-      frequency: 125000
-    l1:
-      duration: 171000  # micro seconds
-      frequency: 500000
-    otherLevels:
-      duration: 137000  # micro seconds
-      frequency: 500000
+  l0:
+    duration: 173840  # micro seconds
+    frequency: 512000000  #bytes
+  l1:
+    duration: 170709  # micro seconds
+    frequency: 2048000000 #bytes
+  otherLevels:
+    duration: 137202  # micro seconds
+    frequency: 500100
