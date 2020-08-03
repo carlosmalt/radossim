@@ -101,7 +101,9 @@ def osdThread(env, srcQ, dstQ):
 #                 data.append(req)
 
 
-def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000, data=None):
+def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000, data=None, useCoDel=True):
+    bm = BatchManagement(srcQ, targetLat, measInterval)
+    queue = []
     while True:
         # Create batch
         batchReqSize = 0
@@ -111,8 +113,6 @@ def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000,
             for req in batch:
                 ((_, reqSize, _), _) = req
                 batchReqSize += reqSize
-        if len(batch) > 48:
-            print(f'aio batch: {len(batch)}')
         aioSubmit = env.now
         yield env.timeout(latencyModel.submitAIO(batchReqSize))
         aioDone = env.now
@@ -260,7 +260,7 @@ class BatchManagement:
             print("total", self.lat / self.count / 1000000)
 
 
-def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_000_000, output=None):
+def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_000_000, output=None, useCoDel=True):
     def patchResource(resource, preCallback=None, postCallback=None):
         """Patch *resource* so that it calls the callable *preCallback* before each
         put/get/request/release operation and the callable *postCallback* after each
@@ -365,9 +365,9 @@ def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_00
             pickle.dump(data, f)
     duration = env.now / 1_000_000  # to sec
     bytesWritten = latencyModel.bytesWritten
-    avgThrouput = bytesWritten / duration
+    avgThroughput = bytesWritten / duration
 
-    return avgThrouput, queuLenMonitor.sum / queuLenMonitor.size
+    return avgThroughput, queuLenMonitor.sum / queuLenMonitor.size
 
 
 if __name__ == "__main__":
@@ -389,7 +389,7 @@ if __name__ == "__main__":
     targetLat = 5000
     measInterval = 100000
     time = 5 * 60 * 1_000_000   # 5 mins
-    (avgBandwidth, avgOsdQueueLen) = runSimulation(args.model, targetLat, measInterval, time, args.output)
-    avgBandwidth = avgBandwidth / 1024
-    print(f'Bandwidth: {avgBandwidth} KB/s')
+    (avgThroughput, avgOsdQueueLen) = runSimulation(args.model, targetLat, measInterval, time, args.output)
+    avgThroughput = avgThroughput / 1024
+    print(f'Throughput: {avgThroughput} KB/s')
     print(f'OSD Queue Len: {avgOsdQueueLen}')

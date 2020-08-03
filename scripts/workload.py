@@ -18,7 +18,7 @@ class OsdClientBenchConstantSize(WorkloadGenerator):
         self.priority = priority
 
     def calculateTimeout(self):
-        return 0
+        return 60
 
     def createRequest(self, env):
         return self.priority, self.requestSize, env.now

@@ -31,11 +31,9 @@ class LatencyModel(ABC):
         pass
 
     def applyWrite(self, size):
-        latency, compaction = self.calculateKVLatency(size)
-        if latency > 200000:
-            print(f'kv too big: {latency} >> {size}')
+        latency = self.calculateKVLatency(size)
         self.bytesWritten += size
-        return latency, compaction
+        return latency
 
     def submitAIO(self, size):
         latency = self.calculateAIOLatency(size)
@@ -77,9 +75,9 @@ class StatisticLatencyModel(LatencyModel):
             1
         )
         pureWriteLatency *= 1_000_000  # to micro seconds
-        compactLat, compaction = self.calculateCompactionLatency(size)
+        compactLat = self.calculateCompactionLatency(size)
 
-        return pureWriteLatency + compactLat, compaction
+        return pureWriteLatency + compactLat
 
     def calculateCompactionLatency(self, size):
         # runLen = size / float(self.latencyModelConfig.writeSize)
@@ -93,23 +91,20 @@ class StatisticLatencyModel(LatencyModel):
                 self.bytesWritten + size) // l0Frequency:
             # L0 Compaction
             compactLat += self.latencyModelConfig.compaction.l0.duration
-            compaction = 'l0'
             print('L0 Compaction')
 
         if self.bytesWritten // l1Frequency != (
                 self.bytesWritten + size) // l1Frequency:
             # Other levels Compaction
             compactLat += self.latencyModelConfig.compaction.l1.duration
-            compaction = 'l1'
             print('L1 Compaction')
 
         if self.bytesWritten // otherLevelsFrequency != (
                 self.bytesWritten + size) // otherLevelsFrequency:
             # Other levels Compaction
             compactLat += self.latencyModelConfig.compaction.otherLevels.duration
-            compaction = 'l>1'
             print('L > 1 Compaction')
-        return compactLat, compaction
+        return compactLat
 
     def calculateLatencyByDistribution(self, distributionName, params={}, size=1):
         distribution = getattr(stats, distributionName)
