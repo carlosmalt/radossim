@@ -24,7 +24,7 @@ class Optimizer:
             return throughputViolationPenalty
         alpha = 48
         osdQLenError = alpha /osdQueueLen
-        throughputError = pow(2, throughputChange - 10)
+        throughputError = pow(10, throughputChange - 10)
         print(f'Error for ({throughput}, {osdQueueLen}): {osdQLenError + throughputError}')
         return osdQLenError + throughputError
 
