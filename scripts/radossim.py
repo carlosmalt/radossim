@@ -8,6 +8,7 @@ import argparse
 from latency_model import StatisticLatencyModel
 from workload import OsdClientBench4K, RandomOSDClient, OsdClientBenchConstantSize
 import pickle
+import matplotlib.pyplot as plt
 
 # Create requests with a fixed priority and certain inter-arrival and size distributions
 def osdClient(env, workloadGenerator, dstQ):
@@ -36,8 +37,7 @@ def osdThread(env, srcQ, dstQ):
             yield put
 
 
-def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000, data=None, useCoDel=True):
-    bm = BatchManagement(srcQ, targetLat, measInterval)
+def kvAndAioThread(env, srcQ, latencyModel, batchManagement, data=None, useCoDel=True):
     while True:
         batchReqSize = 0
         batch = []
@@ -47,10 +47,10 @@ def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000,
             batchReqSize += reqSize
             batch.append(req)
         if useCoDel:
-            if bm.batchSize == float("inf"):
+            if batchManagement.batchSize == float("inf"):
                 batchSize = len(srcQ.items)
             else:
-                batchSize = int(min(bm.batchSize - 1, len(srcQ.items)))
+                batchSize = int(min(batchManagement.batchSize - 1, len(srcQ.items)))
         else:
             batchSize = int(min(1023, len(srcQ.items)))
         for i in range(batchSize):
@@ -78,7 +78,7 @@ def kvAndAioThread(env, srcQ, latencyModel, targetLat=5000, measInterval=100000,
                 req = (req, kvQDispatch, kvCommit)
                 data.append(req)
         if useCoDel:
-            bm.manageBatch(kvBatch, batchReqSize, kvQDispatch, kvCommit)
+            batchManagement.manageBatch(kvBatch, batchReqSize, kvQDispatch, kvCommit)
 
 
 # Batch incoming requests and process
@@ -139,9 +139,13 @@ class BatchManagement:
         self.batchSize = self.queue.capacity
         self.batchSizeInit = 100
         self.batchDownSize = lambda x: int(x / 2)
-        self.batchUpSize = lambda x: int(x + 10)
+        self.batchUpSize = lambda x: int(x + 1)
         # written data state
         self.bytesWritten = 0
+        self.batchSizeLog = []
+        self.timeLog = []
+        self.batchSizeLog.append(self.batchSize)
+        self.timeLog.append(0)
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
@@ -159,7 +163,7 @@ class BatchManagement:
                 self.latMap[priority] = osdQLat + kvQLat
                 self.cntMap[priority] = 1
             self.fightBufferbloat(kvQLat, dispatchTime)
-            self.printLats()
+            # self.printLats()
 
     # Implement CoDel algorithm and call batchSizing
     def fightBufferbloat(self, currQLat, currentTime):
@@ -198,6 +202,8 @@ class BatchManagement:
             # print('batch size', self.batchSize, 'gets larger')
             self.batchSize = self.batchUpSize(self.batchSize)
             # print('new batch size is', self.batchSize)
+        self.batchSizeLog.append(self.batchSize)
+        self.timeLog.append(self.queue._env.now)
 
     def printLats(self, freq=1000):
         if self.count % freq == 0:
@@ -241,13 +247,13 @@ def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_00
 
     def monitor(data, resource):
         """Monitor queue len"""
-        data.sum += len(resource.items)
-        data.size += 1
+        data.queueLenList.append(len(resource.items))
+        data.logTimeList.append(resource._env.now)
 
     class QueueLenMonitor:
         def __init__(self):
-            self.sum = 0
-            self.size = 0
+            self.queueLenList = []
+            self.logTimeList = []
 
     env = simpy.Environment()
 
@@ -300,7 +306,8 @@ def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_00
     if output:
         data = []
     # env.process(kvThread(env, kvQ, latencyModel, targetLat, measInterval, data))
-    env.process(kvAndAioThread(env, aioQ, latencyModel, targetLat, measInterval, data, useCoDel))
+    bm = BatchManagement(aioQ, targetLat, measInterval)
+    env.process(kvAndAioThread(env, aioQ, latencyModel, bm, data, useCoDel))
 
     # if outputFile:
     #     env.process(outputResults(env, outputQ, outputFile))
@@ -314,7 +321,22 @@ def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_00
     bytesWritten = latencyModel.bytesWritten
     avgThroughput = bytesWritten / duration
 
-    return avgThroughput, queuLenMonitor.sum / queuLenMonitor.size
+    # fig, ax = plt.subplots(figsize=(8, 4))
+    # ax.grid(True)
+    # ax.set_title('title')
+    # ax.set_xlabel('x_label')
+    # ax.set_ylabel('Likelihood of occurrence')
+    # ax.plot(queuLenMonitor.logTimeList, queuLenMonitor.queueLenList)
+    # plt.show()
+
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.grid(True)
+    ax.set_xlabel('time')
+    ax.set_ylabel('Batch Size')
+    ax.plot(bm.timeLog, bm.batchSizeLog)
+    plt.show()
+
+    return avgThroughput, sum(queuLenMonitor.queueLenList) / len(queuLenMonitor.queueLenList)
 
 
 if __name__ == "__main__":
@@ -336,9 +358,9 @@ if __name__ == "__main__":
                         help='Use CoDel algorithm for batch sizing?'
                         )
     args = parser.parse_args()
-    targetLat = 5000
-    measInterval = 100000
-    time = 5 * 60 * 1_000_000   # 5 mins
+    targetLat = 1000
+    measInterval = 2
+    time = 60 * 1_000_000   # 5 mins
     if args.useCoDel:
         print('Using CoDel algorithm ...')
 
