@@ -19,7 +19,7 @@ compaction:
     frequency: 512000000  #bytes
   l1:
     duration: 170709  # micro seconds
-    frequency: 2048000000 #bytes
+    frequency: 2052096000 #bytes
   otherLevels:
     duration: 137202  # micro seconds
-    frequency: 2048409600 #bytes
+    frequency: 2056192000 #bytes

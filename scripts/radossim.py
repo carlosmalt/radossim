@@ -78,7 +78,7 @@ def kvAndAioThread(env, srcQ, latencyModel, batchManagement, data=None, useCoDel
                 req = (req, kvQDispatch, kvCommit)
                 data.append(req)
         if useCoDel:
-            batchManagement.manageBatch(kvBatch, batchReqSize, kvQDispatch, kvCommit)
+            batchManagement.manageBatch(kvBatch, batchReqSize, aioSubmit, kvCommit)
 
 
 # Batch incoming requests and process
@@ -142,9 +142,10 @@ class BatchManagement:
         self.batchUpSize = lambda x: int(x + 1)
         # written data state
         self.bytesWritten = 0
+        self.maxQueueLen = 0
         self.batchSizeLog = []
         self.timeLog = []
-        self.batchSizeLog.append(self.batchSize)
+        self.batchSizeLog.append(self.batchSizeInit)
         self.timeLog.append(0)
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
@@ -153,6 +154,7 @@ class BatchManagement:
             # Account latencies
             osdQLat = arrivalKV - arrivalOSD
             kvQLat = dispatchTime - arrivalKV
+            # print(kvQLat)
             self.bytesWritten += reqSize
             self.count += 1
             self.lat += osdQLat + kvQLat
@@ -189,6 +191,10 @@ class BatchManagement:
                 self.batchSizing(False)
             self.minLat = None
             self.intervalStart = currentTime
+            self.maxQueueLen = 0
+        else:
+            if self.maxQueueLen < len(self.queue.items):
+                self.maxQueueLen = len(self.queue.items)
 
     def batchSizing(self, isTooLarge):
         if isTooLarge:
@@ -197,13 +203,17 @@ class BatchManagement:
                 self.batchSize = self.batchSizeInit
             else:
                 self.batchSize = self.batchDownSize(self.batchSize)
+                if self.batchSize == 0:
+                    self.batchSize = 1
             print("new batch size is", self.batchSize)
-        elif self.batchSize != float("inf"):
+        #elif self.batchSize != float("inf"):
+        elif self.batchSize < self.maxQueueLen * 2:
             # print('batch size', self.batchSize, 'gets larger')
             self.batchSize = self.batchUpSize(self.batchSize)
             # print('new batch size is', self.batchSize)
-        self.batchSizeLog.append(self.batchSize)
-        self.timeLog.append(self.queue._env.now)
+        if self.batchSize != float("inf"):
+            self.batchSizeLog.append(self.batchSize)
+            self.timeLog.append(self.queue._env.now)
 
     def printLats(self, freq=1000):
         if self.count % freq == 0:
@@ -271,7 +281,7 @@ def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_00
     # osdQ = simpy.Store(env) # infinite capacity
 
     # KV queue (capacity translates into initial batch size)
-    aioQ = simpy.Store(env, 1024)
+    aioQ = simpy.Store(env)
 
     # monitoring
     queuLenMonitor = QueueLenMonitor()
@@ -320,7 +330,7 @@ def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_00
     duration = env.now / 1_000_000  # to sec
     bytesWritten = latencyModel.bytesWritten
     avgThroughput = bytesWritten / duration
-
+    print(bytesWritten/4096)
     # fig, ax = plt.subplots(figsize=(8, 4))
     # ax.grid(True)
     # ax.set_title('title')
@@ -328,7 +338,10 @@ def runSimulation(model, targetLat=5000, measInterval=100000, time=5 * 60 * 1_00
     # ax.set_ylabel('Likelihood of occurrence')
     # ax.plot(queuLenMonitor.logTimeList, queuLenMonitor.queueLenList)
     # plt.show()
-
+    def Average(lst): 
+        return sum(lst) / len(lst) 
+    print(f'Batch size: {max(bm.batchSizeLog)}')
+    print(f'Time size: {len(bm.timeLog)}')
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.grid(True)
     ax.set_xlabel('time')
@@ -358,8 +371,8 @@ if __name__ == "__main__":
                         help='Use CoDel algorithm for batch sizing?'
                         )
     args = parser.parse_args()
-    targetLat = 1000
-    measInterval = 2
+    targetLat = 500
+    measInterval = 1000
     time = 60 * 1_000_000   # 5 mins
     if args.useCoDel:
         print('Using CoDel algorithm ...')
