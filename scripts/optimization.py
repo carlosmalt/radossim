@@ -14,7 +14,7 @@ class Optimizer:
 
     def runSimulationAndCalculateError(self, paramList):
         targetLat, interval = paramList
-        throughput, osdQueueLen = radossim.runSimulation(self.model, targetLat=targetLat, measInterval=interval, time=self.time)
+        throughput, osdQueueLen, _, _ = radossim.runSimulation(self.model, targetLat=targetLat, measInterval=interval, time=self.time)
         return self.error(throughput, osdQueueLen)
 
     def error(self, throughput, osdQueueLen):
@@ -28,8 +28,8 @@ class Optimizer:
         print(f'Error for ({throughput}, {osdQueueLen}): {osdQLenError + throughputError}')
         return osdQLenError + throughputError
 
-    def optimize(self, targetLatStartPoint, intervalBoundsStartPoint, targetLatBounds=(500, 5000), intervalBounds=(1000, 200000)):
-        throughput, _ = radossim.runSimulation(self.model, targetLat=targetLat, measInterval=interval,
+    def optimize(self, targetLatStartPoint, intervalBoundsStartPoint, targetLatBounds=(50, 5000), intervalBounds=(100, 100000)):
+        throughput, _, _, _ = radossim.runSimulation(self.model, targetLat=targetLat, measInterval=interval,
                                                          time=self.time, useCoDel=False)
         self.originalThroughput = throughput
         print(f'Original Throughput: {self.originalThroughput} B/s')
@@ -49,9 +49,9 @@ if __name__ == "__main__":
                         help='filepath of latency model (default "latency_model_4K.yaml")'
                         )
     args = parser.parse_args()
-    targetLat = 1000
-    interval = 50000
-    time = 5 * 60 * 1_000_000  # 5 mins
+    targetLat = 100
+    interval = 1000
+    time = 10 * 1_000_000  # 5 mins
     optimizer = Optimizer('L-BFGS-B', args.model, time)
     res = optimizer.optimize(targetLat, interval)
     print(res)
