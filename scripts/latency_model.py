@@ -72,7 +72,7 @@ class StatisticLatencyModel(LatencyModel):
         pureWriteLatency = self.calculateLatencyByDistribution(
             self.latencyModelConfig.kvWriteDistribution.distributionName,
             self.latencyModelConfig.kvWriteDistribution._params,
-            1
+            math.floor(runLen)
         )
         pureWriteLatency *= 1_000_000  # to micro seconds
         compactLat = self.calculateCompactionLatency(size)

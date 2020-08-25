@@ -41,9 +41,7 @@ def patchResource(resource, preCallback=None, postCallback=None, actions=None):
             # This is the actual wrapper
             # Call "pre" callback
             if preCallback:
-                result = preCallback(resource, args)
-                if result:
-                    args = result
+                preCallback(resource, args)
 
             # Perform actual operation
             ret = func(*args, **kwargs)

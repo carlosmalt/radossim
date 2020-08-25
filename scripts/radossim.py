@@ -5,9 +5,9 @@ import simpy
 from functools import partial, wraps
 import math
 import argparse
-from scripts.latency_model import StatisticLatencyModel
-from scripts.workload import OsdClientBench4K, RandomOSDClient, OsdClientBenchConstantSize
-from scripts.simpy_utils import patchResource, VariableCapacityStore
+from .latency_model import StatisticLatencyModel
+from .workload import OsdClientBench4K, RandomOSDClient, OsdClientBenchConstantSize
+from .simpy_utils import patchResource, VariableCapacityStore
 import pickle
 import matplotlib.pyplot as plt
 
@@ -67,13 +67,14 @@ def kvAndAioThread(env, srcQ, latencyModel, batchManagement, ioDepthLockQueue, d
                 batch.append(req)
         # print(len(batch))
         aioSubmit = env.now
-        timeout = latencyModel.submitAIO(batchReqSize)
-        yield env.timeout(timeout)
+        # timeout = latencyModel.submitAIO(batchReqSize)
+        # yield env.timeout(timeout)
         aioDone = env.now
         kvBatch = []
         for req in batch:
             req = (req, aioSubmit, aioDone)
             kvBatch.append(req)
+
 
         # Process batch
         kvQDispatch = env.now
@@ -99,7 +100,7 @@ def kvAndAioThread(env, srcQ, latencyModel, batchManagement, ioDepthLockQueue, d
 
 # Manage batch sizing
 class BatchManagement:
-    def __init__(self, queue, minLatTarget=5000, initInterval=100000, downSize=None, upSize=None):
+    def __init__(self, queue, minLatTarget=5000, initInterval=100000, downSize=None, upSize=None, upSizeLimit=False):
         self.queue = queue
         # Latency state
         self.latMap = {}
@@ -131,6 +132,7 @@ class BatchManagement:
         self.timeLog = []
         self.batchSizeLog.append(self.batchSizeInit)
         self.timeLog.append(0)
+        self.upSizeLimit = upSizeLimit
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
@@ -194,11 +196,12 @@ class BatchManagement:
                     self.batchSize = 1
             # print("new batch size is", self.batchSize)
         elif self.batchSize != float("inf"):
-        # elif self.batchSize < 1.5 * self.maxQueueLen:
+            if not self.upSizeLimit or self.batchSize < 1.5 * self.maxQueueLen:
         # elif self.batchSize < 200:
             # print('batch size', self.batchSize, 'gets larger')
-            self.batchSize = self.batchUpSize(self.batchSize)
+                self.batchSize = self.batchUpSize(self.batchSize)
             # print('new batch size is', self.batchSize)
+            
 
     def printLats(self, freq=1000):
         if self.count % freq == 0:
@@ -207,24 +210,38 @@ class BatchManagement:
             print("total", self.lat / self.count / 1000000)
 
 
+class AdaptiveBatchManagement(BatchManagement):
+    def batchSizing(self, isTooLarge):
+        if isTooLarge:
+            alpha = 0.3
+        else:
+            alpha = 0.02
+        if self.batchSize == float("inf"):
+            self.batchSize = self.batchSizeInit
+        else:
+            latDiff = (self.minLatTarget - self.minLat) / self.minLatTarget
+            print(self.batchSize)
+            self.batchSize = self.batchSize + math.floor(self.batchSize * latDiff * alpha)
+            if self.batchSize == float("inf"):
+                self.batchSize = self.batchSizeInit
+            if self.batchSize <= 1:
+                self.batchSize = 2
+
+
 def runSimulation(model, targetLat=5000, measInterval=100000,
-                  time=5 * 60 * 1_000_000, output=None, useCoDel=True, downSize=None, upSize=None):
+                  time=5 * 60 * 1_000_000, output=None, useCoDel=True, downSize=None, upSize=None, adaptive=False, upSizeLimit=False):
     def monitor(data, resource, args):
         """Monitor queue len"""
         data.queueLenList.append(len(resource.items))
         data.logTimeList.append(resource._env.now)
 
     def timestamp(resource, args):
-        if args and len(args) > 0:
-            argList = list(args)
-            for index in range(len(argList)):
-                item = argList[index]
-                if type(item) is tuple:
-                    item = (item, resource._env.now)
-                    argList[index] = item
-            return tuple(argList)
-
-
+        for index in range(len(resource.items)):
+            try:
+                ((_, _, _), _) = resource.items[index]
+                resource.items[index] = (resource.items[index], resource._env.now)
+            except:
+                pass
 
     class QueueLenMonitor:
         def __init__(self):
@@ -258,8 +275,8 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
     patchResource(osdQ1, postCallback=monitor)
 
     # register kvQueued Timestamp
-    patchResource(aioQ, preCallback=timestamp, actions=['put'])
-
+    patchResource(aioQ, postCallback=timestamp, actions=['put'])
+    patchResource(aioQ, preCallback=timestamp, actions=['get'])
     # kvQ = simpy.Store(env)
 
     # OSD client(s), each with a particular priority pushing request into a particular queue
@@ -287,7 +304,10 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
     # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
     data = []
     # env.process(kvThread(env, kvQ, latencyModel, targetLat, measInterval, data))
-    bm = BatchManagement(aioQ, targetLat, measInterval, downSize=downSize, upSize=upSize)
+    if adaptive:
+        bm = AdaptiveBatchManagement(aioQ, targetLat, measInterval)
+    else:
+        bm = BatchManagement(aioQ, targetLat, measInterval, downSize=downSize, upSize=upSize, upSizeLimit=upSizeLimit)
     env.process(kvAndAioThread(env, aioQ, latencyModel, bm, ioDepthLockQueue, data=data, useCoDel=useCoDel))
 
     # if outputFile:
@@ -327,7 +347,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     targetLat = 250
     measInterval = 1000
-    time = 60 * 1_000_000   # 5 mins
+    time = 5 * 60 * 1_000_000   # 5 mins
 
     avgThroughput, avgOsdQueueLen, data, timeLog, batchSizeLog = runSimulation(
         args.model,
@@ -341,10 +361,10 @@ if __name__ == "__main__":
     print(f'Throughput: {avgThroughput} KB/s')
     print(f'OSD Queue Len: {avgOsdQueueLen}')
 
-    fig, ax = plt.subplots(figsize=(8, 4))
-    ax.grid(True)
-    ax.set_xlabel('time')
-    ax.set_ylabel('Batch Size')
-    ax.plot(timeLog, batchSizeLog)
-    plt.show()
+    # fig, ax = plt.subplots(figsize=(8, 4))
+    # ax.grid(True)
+    # ax.set_xlabel('time')
+    # ax.set_ylabel('Batch Size')
+    # ax.plot(timeLog, batchSizeLog)
+    # plt.show()
 

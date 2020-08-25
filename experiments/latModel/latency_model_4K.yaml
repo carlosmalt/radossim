@@ -2,11 +2,12 @@
 # Latency Model for 4K writes only
 writeSize: 4096
 kvWriteDistribution:
-  distributionName: exponnorm
+  distributionName: johnsonsu
   _params:
-    K: 1.5239202491769392
-    loc: 0.0006541228223387167
-    scale: 7.2800388773986e-05
+    a: -0.8459994464427955
+    b: 0.6707937324749353
+    loc: 4.772191423837385e-05
+    scale: 4.901664088279931e-06
 aioWriteDistribution:
   distributionName: exponnorm
   _params:
