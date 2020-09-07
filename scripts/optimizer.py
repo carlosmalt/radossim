@@ -1,4 +1,4 @@
-import scipy.optimize
+from noisyopt import minimizeSPSA
 import radossim
 import math
 import numpy as np
@@ -14,33 +14,32 @@ class Optimizer:
 
     def runSimulationAndCalculateError(self, paramList):
         targetLat, interval = paramList
-        throughput, osdQueueLen, data, _, _ = radossim.runSimulation(self.model, targetLat=targetLat, measInterval=interval, time=self.time, adaptive=True, smartDownSizingSamples=1)
+        throughput, osdQueueLen, _, _, _ = radossim.runSimulation(self.model, targetLat=targetLat, measInterval=interval, time=self.time, adaptive=True, smartDownSizingSamples=1)
         print(paramList)
-        return self.error(throughput, osdQueueLen, data)
+        return self.error(throughput, osdQueueLen)
 
-    def error(self, throughput, osdQueueLen, data):
+    def error(self, throughput, osdQueueLen):
         throughputViolationPenalty = 1_000_000   # big number
         throughputChange = (self.originalThroughput - throughput) * 100 / self.originalThroughput
         if throughputChange > 10:
             return throughputViolationPenalty
-        avgKVQueueLat = 0
-        for (((((_, _, _), _), arrivalKV), _, _), kvQDispatch, kvCommit) in data:
-            avgKVQueueLat += kvQDispatch - arrivalKV
-        avgKVQueueLat /= len(data)
-        print(f'Error for ({throughput}, {throughputChange}, {avgKVQueueLat})')
-        return avgKVQueueLat
+        alpha = 48
+        osdQLenError = alpha /osdQueueLen
+        throughputError = pow(10, throughputChange - 10)
+        print(f'Error for ({throughput}, {osdQueueLen}): {osdQLenError + throughputError}')
+        return osdQLenError + throughputError
 
-    def optimize(self, targetLatStartPoint, intervalBoundsStartPoint, targetLatBounds=(10, 2000), intervalBounds=(10, 10000)):
+    def optimize(self, targetLatStartPoint, intervalBoundsStartPoint, targetLatBounds=[0, 2000], intervalBounds=[0, 10000]):
         throughput, _, _, _, _ = radossim.runSimulation(self.model, targetLat=targetLat, measInterval=interval,
                                                          time=self.time, useCoDel=False)
         self.originalThroughput = throughput
         print(f'Original Throughput: {self.originalThroughput} B/s')
-        return scipy.optimize.minimize(self.runSimulationAndCalculateError, [targetLatStartPoint,
-                                              intervalBoundsStartPoint],
-                                      method=self.optimizationMethod,
-                                      bounds=[targetLatBounds,
-                                              intervalBounds],
-                                       options={'eps':200})
+        return minimizeSPSA(self.runSimulationAndCalculateError,
+                            x0=[targetLatStartPoint, intervalBoundsStartPoint],
+                            bounds=[targetLatBounds, intervalBounds],
+                            paired=False,
+                            niter=5
+                            )
 
 
 if __name__ == "__main__":

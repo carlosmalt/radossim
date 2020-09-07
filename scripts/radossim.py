@@ -5,10 +5,12 @@ import simpy
 from functools import partial, wraps
 import math
 import argparse
-from .latency_model import StatisticLatencyModel
-from .workload import OsdClientBench4K, RandomOSDClient, OsdClientBenchConstantSize
-from .simpy_utils import patchResource, VariableCapacityStore
+from latency_model import StatisticLatencyModel
+from workload import OsdClientBench4K, RandomOSDClient, OsdClientBenchConstantSize
+from simpy_utils import patchResource, VariableCapacityStore
 import pickle
+import numpy as np
+from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
 
 
@@ -37,19 +39,19 @@ def osdClient(env, workloadGenerator, dstQ, ioDepth, ioDepthLockQueue):
                 yield put
 
 
-
 # Move requests to BlueStore
 def osdThread(env, srcQ, dstQ):
     while True:
         # Wait until there is something in the srcQ
+        yield env.timeout(1)
         with srcQ.get() as get:
             req = yield get
+            req = (req, env.now)
         with dstQ.put(req) as put:
             yield put
 
 
-def kvAndAioThread(env, srcQ, latencyModel, batchManagement, ioDepthLockQueue, data=None, useCoDel=True):
-    bs = batchManagement.batchSize
+def kvAndAioThread(env, srcQ, latencyModel, batchManagement, ioDepthLockQueue, aioLockQueue, data=None, useCoDel=True):
     while True:
         batchReqSize = 0
         batch = []
@@ -58,49 +60,48 @@ def kvAndAioThread(env, srcQ, latencyModel, batchManagement, ioDepthLockQueue, d
             (((_, reqSize, _), _), arrivalKV) = req
             batchReqSize += reqSize
             batch.append(req)
-        batchSize = int(min(len(srcQ.items), 1023))
+        batchSize = (len(srcQ.items))
+        # print(batchSize)
         for i in range(batchSize):
             with srcQ.get() as get:
                 req = yield get
                 (((_, reqSize, _), _), arrivalKV) = req
                 batchReqSize += reqSize
                 batch.append(req)
-        # print(len(batch))
-        aioSubmit = env.now
-        # timeout = latencyModel.submitAIO(batchReqSize)
-        # yield env.timeout(timeout)
-        aioDone = env.now
-        kvBatch = []
-        for req in batch:
-            req = (req, aioSubmit, aioDone)
-            kvBatch.append(req)
 
+        if data is not None:
+            data['kv_batch_sizes']['time'].append(env.now)
+            data['kv_batch_sizes']['size'].append(len(batch))
 
         # Process batch
+        aioSubmit = env.now
+        timeout = latencyModel.submitAIO(batchReqSize)
+        yield env.timeout(timeout)
+        aioDone = env.now
         kvQDispatch = env.now
         latency = latencyModel.applyWrite(batchReqSize)
         yield env.timeout(latency)
         kvCommit = env.now
 
-        for req in kvBatch:
-            ((((_, _, _), releaseIoQueue), _), _, _) = req
+        for req in batch:
+            (((_, _, _), releaseIoQueue), _) = req
             if releaseIoQueue:
                 with ioDepthLockQueue.get() as get:     # release lock on ioDepth
                     _ = yield get
             if data is not None:
-                req = (req, kvQDispatch, kvCommit)
-                data.append(req)
+                req = ((req, aioSubmit, aioDone), kvQDispatch, kvCommit)
+                data['requests'].append(req)
+        # if len(batch) > 0:
+        #     with aioLockQueue.get() as get:  # release lock on aio
+        #         _ = yield get
         if useCoDel:
-            batchManagement.manageBatch(kvBatch, batchReqSize, kvQDispatch, kvCommit)
-            # if batchManagement.batchSize != bs:
-            #     bs = batchManagement.batchSize
-            #     print(f'cap changed to {batchManagement.batchSize}')
-            srcQ.changeCapacity(batchManagement.batchSize)
+            batchManagement.manageBatch(batch, batchReqSize, kvQDispatch, kvCommit)
+            batchManagement.applyBatchSize()
 
 
 # Manage batch sizing
 class BatchManagement:
-    def __init__(self, queue, minLatTarget=5000, initInterval=100000, downSize=None, upSize=None, upSizeLimit=False):
+    def __init__(self, queue, minLatTarget=5000, initInterval=100000, downSize=2, upSize=1, upSizeLimitPortion=1.5, smartDownSizing=False, smartDownSizingSamples=1, active=True):
         self.queue = queue
         # Latency state
         self.latMap = {}
@@ -115,28 +116,33 @@ class BatchManagement:
         self.intervalAdj = lambda x: math.sqrt(x)
         self.minLat = None
         # Batch sizing state
-        self.batchSize = self.queue.capacity
+        if active:
+            self.batchSize = 100
+            self.queue.changeCapacity(self.batchSize)
+        else:
+            self.batchSize = self.queue.capacity
         self.batchSizeInit = 100
-        if downSize:
-            self.batchDownSize = lambda x: int(x / downSize)
-        else:
-            self.batchDownSize = lambda x: int(x / 2)
-        if upSize:
-            self.batchUpSize = lambda x: int(x + upSize)
-        else:
-            self.batchUpSize = lambda x: int(x + 1)
+        self.batchDownSize = lambda x: int(x / downSize)
+        self.batchUpSize = lambda x: int(x + upSize)
         # written data state
         self.bytesWritten = 0
         self.maxQueueLen = 0
         self.batchSizeLog = []
         self.timeLog = []
-        self.batchSizeLog.append(self.batchSizeInit)
+        self.batchSizeLog.append(self.batchSize)
         self.timeLog.append(0)
-        self.upSizeLimit = upSizeLimit
+        if upSizeLimitPortion < 1 or upSizeLimitPortion >= downSize:
+            raise Exception(f'In appropriate \'upSizeLimitPortion\' parameter value [{upSizeLimitPortion}] : 1 < \'upSizeLimitPortion\' < \'downSize = {downSize}\'')
+        self.upSizeLimitPortion = upSizeLimitPortion
+        self.smartDownSizing = smartDownSizing
+        self.smartDownSizingSamples = smartDownSizingSamples
+        self.smartDownSizingIntervalStart = None
+        self.minLatHistory = []
+        self.localMinLat = None
 
     def manageBatch(self, batch, batchSize, dispatchTime, commitTime):
         for txn in batch:
-            ((((priority, reqSize, arrivalOSD), _), arrivalKV), aioSubmit, aioDone) = txn
+            (((priority, reqSize, arrivalOSD), _), arrivalKV) = txn
             # Account latencies
             osdQLat = arrivalKV - arrivalOSD
             kvQLat = dispatchTime - arrivalKV
@@ -155,6 +161,16 @@ class BatchManagement:
 
     # Implement CoDel algorithm and call batchSizing
     def fightBufferbloat(self, currQLat, currentTime):
+        # Smart Down Sizing
+        if self.smartDownSizing:
+            if not self.localMinLat or currQLat < self.localMinLat:
+                self.localMinLat = currQLat
+            if not self.smartDownSizingIntervalStart:
+                self.smartDownSizingIntervalStart = currentTime
+            elif currentTime - self.smartDownSizingIntervalStart >= (self.interval / self.smartDownSizingSamples):
+                self.minLatHistory.append(self.localMinLat)
+                self.localMinLat = None
+
         if not self.minLat or currQLat < self.minLat:
             self.minLat = currQLat
         if not self.intervalStart:
@@ -191,17 +207,43 @@ class BatchManagement:
             if self.batchSize == float("inf"):
                 self.batchSize = self.batchSizeInit
             else:
-                self.batchSize = self.batchDownSize(self.batchSize)
-                if self.batchSize == 0:
+                if not self.smartDownSizing:
+                    self.batchSize = self.batchDownSize(self.batchSize)
+                else:
+                    self.smartDownSize()
+                if math.floor(self.batchSize) == 0:
                     self.batchSize = 1
             # print("new batch size is", self.batchSize)
         elif self.batchSize != float("inf"):
-            if not self.upSizeLimit or self.batchSize < 1.5 * self.maxQueueLen:
-        # elif self.batchSize < 200:
-            # print('batch size', self.batchSize, 'gets larger')
+            if self.batchSize < self.upSizeLimitPortion * self.maxQueueLen:
                 self.batchSize = self.batchUpSize(self.batchSize)
             # print('new batch size is', self.batchSize)
-            
+        self.resetSmartDownSizing()
+
+    def smartDownSize(self):
+        # last interval
+        if self.localMinLat is not None:
+            self.minLatHistory.append(self.localMinLat)
+
+        # calculate batch size
+        diff = []
+        for lat in self.minLatHistory:
+            diff.append(abs(lat - self.minLatTarget))
+        me = sum(diff) / len(diff)
+        avg = sum(self.minLatHistory) / len(self.minLatHistory)
+        downSizingRatio = 1 - (me / avg)
+        if 0 >= downSizingRatio >= 1:
+            print('wrong')
+            downSizingRatio = 0.8 / self.upSizeLimitPortion
+        self.batchSize = self.batchSize * downSizingRatio
+
+    def resetSmartDownSizing(self):
+        self.smartDownSizingIntervalStart = None
+        self.localMinLat = None
+        self.minLatHistory.clear()
+
+    def applyBatchSize(self):
+        self.queue.changeCapacity(self.batchSize)
 
     def printLats(self, freq=1000):
         if self.count % freq == 0:
@@ -210,26 +252,26 @@ class BatchManagement:
             print("total", self.lat / self.count / 1000000)
 
 
-class AdaptiveBatchManagement(BatchManagement):
-    def batchSizing(self, isTooLarge):
-        if isTooLarge:
-            alpha = 0.3
-        else:
-            alpha = 0.02
-        if self.batchSize == float("inf"):
-            self.batchSize = self.batchSizeInit
-        else:
-            latDiff = (self.minLatTarget - self.minLat) / self.minLatTarget
-            print(self.batchSize)
-            self.batchSize = self.batchSize + math.floor(self.batchSize * latDiff * alpha)
-            if self.batchSize == float("inf"):
-                self.batchSize = self.batchSizeInit
-            if self.batchSize <= 1:
-                self.batchSize = 2
+# class AdaptiveBatchManagement(BatchManagement):
+#     def batchSizing(self, isTooLarge):
+#         if isTooLarge:
+#             alpha = 0.3
+#         else:
+#             alpha = 0.02
+#         if self.batchSize == float("inf"):
+#             self.batchSize = self.batchSizeInit
+#         else:
+#             latDiff = (self.minLatTarget - self.minLat) / self.minLatTarget
+#             print(self.batchSize)
+#             self.batchSize = self.batchSize + math.floor(self.batchSize * latDiff * alpha)
+#             if self.batchSize == float("inf"):
+#                 self.batchSize = self.batchSizeInit
+#             if self.batchSize <= 1:
+#                 self.batchSize = 2
 
 
 def runSimulation(model, targetLat=5000, measInterval=100000,
-                  time=5 * 60 * 1_000_000, output=None, useCoDel=True, downSize=None, upSize=None, adaptive=False, upSizeLimit=False):
+                  time=5 * 60 * 1_000_000, output=None, useCoDel=True, downSize=2, upSize=1, adaptive=False, smartDownSizingSamples=1, upSizeLimitPortion=1.5):
     def monitor(data, resource, args):
         """Monitor queue len"""
         data.queueLenList.append(len(resource.items))
@@ -238,8 +280,11 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
     def timestamp(resource, args):
         for index in range(len(resource.items)):
             try:
-                ((_, _, _), _) = resource.items[index]
-                resource.items[index] = (resource.items[index], resource._env.now)
+                (req, putTime) = resource.items[index]
+                if resource._env.now - putTime != 0:
+                    (((_, _, _), last), _) = req
+                    print(last, resource._env.now - putTime)
+                    resource.items[index] = (req, resource._env.now)
             except:
                 pass
 
@@ -267,7 +312,7 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
 
     # KV queue (capacity translates into initial batch size)
     aioQ = VariableCapacityStore(env)
-    # aioQ = simpy.Store(env, capacity=1)
+    # kvQ = simpy.Store(env)
 
     # monitoring
     queuLenMonitor = QueueLenMonitor()
@@ -276,7 +321,6 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
 
     # register kvQueued Timestamp
     patchResource(aioQ, postCallback=timestamp, actions=['put'])
-    patchResource(aioQ, preCallback=timestamp, actions=['get'])
     # kvQ = simpy.Store(env)
 
     # OSD client(s), each with a particular priority pushing request into a particular queue
@@ -290,26 +334,38 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
     # osdClientPriorityTwo = OsdClientBench4K(2)
     ioDepth = 48
     ioDepthLockQueue = simpy.Store(env, capacity=1)
-    env.process(osdClient(env, osdClientPriorityOne, osdQ1, ioDepth, ioDepthLockQueue))
+    aioLockQueue = simpy.Store(env, capacity=1)
+
     # env.process(osdClient(env, osdClientPriorityTwo, osdQ1))
 
     # OSD thread(s) (one per OSD queue)
     # env.process(osdThread(env, osdQ, kvQ))
-    env.process(osdThread(env, osdQ1, aioQ))
+
     # env.process(osdThread(env, osdQ2, kvQ))
 
     # AIO thread in BlueStore
     # env.process(aioThread(env, aioQ, kvQ, latencyModel))
 
     # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
-    data = []
+    data = {
+        'requests': [],
+        'kv_batch_sizes': {
+            'time': [],
+            'size': []
+        }
+    }
     # env.process(kvThread(env, kvQ, latencyModel, targetLat, measInterval, data))
-    if adaptive:
-        bm = AdaptiveBatchManagement(aioQ, targetLat, measInterval)
-    else:
-        bm = BatchManagement(aioQ, targetLat, measInterval, downSize=downSize, upSize=upSize, upSizeLimit=upSizeLimit)
-    env.process(kvAndAioThread(env, aioQ, latencyModel, bm, ioDepthLockQueue, data=data, useCoDel=useCoDel))
-
+    bm = BatchManagement(aioQ, targetLat, measInterval,
+                         downSize=downSize,
+                         upSize=upSize,
+                         smartDownSizing=adaptive,
+                         smartDownSizingSamples=smartDownSizingSamples,
+                         upSizeLimitPortion=upSizeLimitPortion,
+                         active=useCoDel
+                         )
+    env.process(kvAndAioThread(env, aioQ, latencyModel, bm, ioDepthLockQueue, aioLockQueue, data=data, useCoDel=useCoDel))
+    env.process(osdThread(env, osdQ1, aioQ))
+    env.process(osdClient(env, osdClientPriorityOne, osdQ1, ioDepth, ioDepthLockQueue))
     # if outputFile:
     #     env.process(outputResults(env, outputQ, outputFile))
 
@@ -345,7 +401,7 @@ if __name__ == "__main__":
                         help='Use CoDel algorithm for batch sizing?'
                         )
     args = parser.parse_args()
-    targetLat = 250
+    targetLat = 500
     measInterval = 1000
     time = 5 * 60 * 1_000_000   # 5 mins
 
@@ -355,7 +411,9 @@ if __name__ == "__main__":
         measInterval,
         time,
         args.output,
-        args.useCoDel
+        args.useCoDel,
+        adaptive=True,
+        smartDownSizingSamples=10
     )
     avgThroughput = avgThroughput / 1024
     print(f'Throughput: {avgThroughput} KB/s')
