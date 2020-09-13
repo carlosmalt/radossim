@@ -3,7 +3,7 @@ import yaml
 from scipy import stats
 import math
 import functools
-from random import random
+import random
 
 
 class LatencyModelConfig(object):
@@ -30,8 +30,13 @@ class LatencyModel(ABC):
     def calculateAIOLatency(self, size):
         pass
 
+    @abstractmethod
+    def calculateConstantTime(self):
+        pass
+
     def applyWrite(self, size):
         latency = self.calculateKVLatency(size)
+        latency += self.calculateConstantTime()
         self.bytesWritten += size
         return latency
 
@@ -52,6 +57,11 @@ class LatencyModel(ABC):
 
 
 class StatisticLatencyModel(LatencyModel):
+    def calculateConstantTime(self):
+        lBound = self.latencyModelConfig.constantTime.lBound
+        uBound = self.latencyModelConfig.constantTime.uBound
+        return random.uniform(lBound, uBound)
+
     def calculateAIOLatency(self, size):
         if size == 0:
             return 0

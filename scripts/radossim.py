@@ -2,16 +2,13 @@
 # bufferbloat
 
 import simpy
-from functools import partial, wraps
+from functools import partial
 import math
 import argparse
-from latency_model import StatisticLatencyModel
-from workload import OsdClientBench4K, RandomOSDClient, OsdClientBenchConstantSize
-from simpy_utils import patchResource, VariableCapacityStore
+from scripts.latency_model import StatisticLatencyModel
+from scripts.workload import OsdClientBench4K, RandomOSDClient, OsdClientBenchConstantSize
+from scripts.simpy_utils import patchResource, VariableCapacityStore
 import pickle
-import numpy as np
-from sklearn.metrics import mean_squared_error
-import matplotlib.pyplot as plt
 
 
 # Create requests with a fixed priority and certain inter-arrival and size distributions
@@ -40,7 +37,7 @@ def osdClient(env, workloadGenerator, dstQ, ioDepth, ioDepthLockQueue):
 
 
 # Move requests to BlueStore
-def osdThread(env, srcQ, dstQ):
+def osdThread(env, srcQ, dstQ, latencyModel):
     while True:
         # Wait until there is something in the srcQ
         yield env.timeout(1)
@@ -51,7 +48,7 @@ def osdThread(env, srcQ, dstQ):
             yield put
 
 
-def kvAndAioThread(env, srcQ, latencyModel, batchManagement, ioDepthLockQueue, aioLockQueue, data=None, useCoDel=True):
+def kvAndAioThread(env, srcQ, latencyModel, batchManagement, ioDepthLockQueue, data=None, useCoDel=True):
     while True:
         batchReqSize = 0
         batch = []
@@ -73,11 +70,6 @@ def kvAndAioThread(env, srcQ, latencyModel, batchManagement, ioDepthLockQueue, a
             data['kv_batch_sizes']['time'].append(env.now)
             data['kv_batch_sizes']['size'].append(len(batch))
 
-        # Process batch
-        aioSubmit = env.now
-        timeout = latencyModel.submitAIO(batchReqSize)
-        yield env.timeout(timeout)
-        aioDone = env.now
         kvQDispatch = env.now
         latency = latencyModel.applyWrite(batchReqSize)
         yield env.timeout(latency)
@@ -89,11 +81,8 @@ def kvAndAioThread(env, srcQ, latencyModel, batchManagement, ioDepthLockQueue, a
                 with ioDepthLockQueue.get() as get:     # release lock on ioDepth
                     _ = yield get
             if data is not None:
-                req = ((req, aioSubmit, aioDone), kvQDispatch, kvCommit)
+                req = (req, kvQDispatch, kvCommit)
                 data['requests'].append(req)
-        # if len(batch) > 0:
-        #     with aioLockQueue.get() as get:  # release lock on aio
-        #         _ = yield get
         if useCoDel:
             batchManagement.manageBatch(batch, batchReqSize, kvQDispatch, kvCommit)
             batchManagement.applyBatchSize()
@@ -252,26 +241,8 @@ class BatchManagement:
             print("total", self.lat / self.count / 1000000)
 
 
-# class AdaptiveBatchManagement(BatchManagement):
-#     def batchSizing(self, isTooLarge):
-#         if isTooLarge:
-#             alpha = 0.3
-#         else:
-#             alpha = 0.02
-#         if self.batchSize == float("inf"):
-#             self.batchSize = self.batchSizeInit
-#         else:
-#             latDiff = (self.minLatTarget - self.minLat) / self.minLatTarget
-#             print(self.batchSize)
-#             self.batchSize = self.batchSize + math.floor(self.batchSize * latDiff * alpha)
-#             if self.batchSize == float("inf"):
-#                 self.batchSize = self.batchSizeInit
-#             if self.batchSize <= 1:
-#                 self.batchSize = 2
-
-
 def runSimulation(model, targetLat=5000, measInterval=100000,
-                  time=5 * 60 * 1_000_000, output=None, useCoDel=True, downSize=2, upSize=1, adaptive=False, smartDownSizingSamples=1, upSizeLimitPortion=1.5):
+                  time=5 * 60 * 1_000_000, output=None, useCoDel=True, downSize=2, upSize=1, adaptive=False, smartDownSizingSamples=1, upSizeLimitPortion=1.5, ioDepth=48):
     def monitor(data, resource, args):
         """Monitor queue len"""
         data.queueLenList.append(len(resource.items))
@@ -298,21 +269,14 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
 
     env = simpy.Environment()
 
-    # Constants
-    # meanInterArrivalTime = 28500  # micro seconds
-    # meanReqSize = 4096  # bytes
-    # meanInterArrivalTime = 4200 # micro seconds
-    # meanReqSize = 16 * 4096 # bytes
     latencyModel = StatisticLatencyModel(model)
-    # OSD queue(s)
-    # Add capacity parameter for max queue lengths
+
+    # OSD queues
     osdQ1 = simpy.PriorityStore(env)
-    # osdQ2 = simpy.PriorityStore(env, capacity=queueDepth)
-    # osdQ = simpy.Store(env) # infinite capacity
+    # osdQ2 = simpy.PriorityStore(env)
 
     # KV queue (capacity translates into initial batch size)
-    aioQ = VariableCapacityStore(env)
-    # kvQ = simpy.Store(env)
+    kvQ = VariableCapacityStore(env)
 
     # monitoring
     queuLenMonitor = QueueLenMonitor()
@@ -320,33 +284,15 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
     patchResource(osdQ1, postCallback=monitor)
 
     # register kvQueued Timestamp
-    patchResource(aioQ, postCallback=timestamp, actions=['put'])
-    # kvQ = simpy.Store(env)
-
-    # OSD client(s), each with a particular priority pushing request into a particular queue
-
-    # random size and speed osd client
-    # osdClientPriorityOne = RandomOSDClient(meanInterArrivalTime * 2, meanReqSize, 1, osdQ1)
-    # osdClientPriorityTwo = RandomOSDClient(meanInterArrivalTime * 2, meanReqSize, 2, osdQ1)
+    patchResource(kvQ, postCallback=timestamp, actions=['put'])
 
     # 4k osd client workload generator
     osdClientPriorityOne = OsdClientBench4K(1)
     # osdClientPriorityTwo = OsdClientBench4K(2)
-    ioDepth = 48
+
     ioDepthLockQueue = simpy.Store(env, capacity=1)
-    aioLockQueue = simpy.Store(env, capacity=1)
 
-    # env.process(osdClient(env, osdClientPriorityTwo, osdQ1))
-
-    # OSD thread(s) (one per OSD queue)
-    # env.process(osdThread(env, osdQ, kvQ))
-
-    # env.process(osdThread(env, osdQ2, kvQ))
-
-    # AIO thread in BlueStore
-    # env.process(aioThread(env, aioQ, kvQ, latencyModel))
-
-    # KV thread in BlueStore with targetMinLat and measurement interval (in usec)
+    # keeps simulation data such as requests timestamps
     data = {
         'requests': [],
         'kv_batch_sizes': {
@@ -354,8 +300,8 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
             'size': []
         }
     }
-    # env.process(kvThread(env, kvQ, latencyModel, targetLat, measInterval, data))
-    bm = BatchManagement(aioQ, targetLat, measInterval,
+
+    bm = BatchManagement(kvQ, targetLat, measInterval,
                          downSize=downSize,
                          upSize=upSize,
                          smartDownSizing=adaptive,
@@ -363,11 +309,9 @@ def runSimulation(model, targetLat=5000, measInterval=100000,
                          upSizeLimitPortion=upSizeLimitPortion,
                          active=useCoDel
                          )
-    env.process(kvAndAioThread(env, aioQ, latencyModel, bm, ioDepthLockQueue, aioLockQueue, data=data, useCoDel=useCoDel))
-    env.process(osdThread(env, osdQ1, aioQ))
+    env.process(kvAndAioThread(env, kvQ, latencyModel, bm, ioDepthLockQueue, data=data, useCoDel=useCoDel))
+    env.process(osdThread(env, osdQ1, kvQ, latencyModel))
     env.process(osdClient(env, osdClientPriorityOne, osdQ1, ioDepth, ioDepthLockQueue))
-    # if outputFile:
-    #     env.process(outputResults(env, outputQ, outputFile))
 
     # Run simulation
     env.run(time)
@@ -419,10 +363,4 @@ if __name__ == "__main__":
     print(f'Throughput: {avgThroughput} KB/s')
     print(f'OSD Queue Len: {avgOsdQueueLen}')
 
-    # fig, ax = plt.subplots(figsize=(8, 4))
-    # ax.grid(True)
-    # ax.set_xlabel('time')
-    # ax.set_ylabel('Batch Size')
-    # ax.plot(timeLog, batchSizeLog)
-    # plt.show()
 

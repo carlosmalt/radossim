@@ -8,6 +8,9 @@ kvWriteDistribution:
     b: 0.6707937324749353
     loc: 4.772191423837385e-05
     scale: 4.901664088279931e-06
+constantTime:
+  lBound: 45
+  uBound: 65
 aioWriteDistribution:
   distributionName: exponnorm
   _params:
